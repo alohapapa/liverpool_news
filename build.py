@@ -157,17 +157,27 @@ def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
-def fetch(url, timeout=20):
+def fetch(url, timeout=20, attempts=3):
     last_error = None
-    for attempt in range(2):
+    for attempt in range(attempts):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en,ko;q=0.8"})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except Exception as e:
             last_error = e
-            too_many = isinstance(e, urllib.error.HTTPError) and e.code == 429
-            time.sleep(15 if too_many else 2)
+            if attempt == attempts - 1:
+                break
+            if isinstance(e, urllib.error.HTTPError) and e.code == 429:
+                # "너무 자주 요청함" — 서버가 알려준 시간(최대 60초)만큼, 없으면 30초 기다린다
+                try:
+                    wait = min(int(e.headers.get("Retry-After", "30")), 60)
+                except ValueError:
+                    wait = 30
+                log(f"  요청이 많다고 해서 {wait}초 기다렸다 다시 시도합니다.")
+                time.sleep(wait)
+            else:
+                time.sleep(2)
     raise last_error
 
 
@@ -180,8 +190,12 @@ def fetch_json(url):
 class Translator:
     """무료 구글 번역. 한 번 번역한 문장은 캐시에 저장해 다시 요청하지 않는다.
 
-    실패하면 점점 길게 쉬고, 5번 연속 실패하면(차단 등) 이번 실행에서는 번역을 멈추고 원문을 그대로 보여준다.
+    구글이 막으면(요청 과다) 잠시 번역을 쉬었다가 다시 시도하고, 그동안 나온 제목은 원문으로 둔다.
+    번역 못 한 제목은 캐시에 없으니 다음 실행(1시간 뒤)에서 다시 번역을 시도한다.
     """
+
+    COOLDOWN = 60       # 막혔을 때 쉬는 시간(초). 쉴 때마다 늘어난다
+    MAX_COOLDOWNS = 3   # 이만큼 쉬고도 막히면 이번 실행에서는 번역을 그만둔다
 
     def __init__(self):
         self.cache = {}
@@ -190,8 +204,10 @@ class Translator:
                 self.cache = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             except ValueError:
                 self.cache = {}
-        self.failures = 0
+        self.cooldowns = 0
+        self.resume_at = 0.0
         self.disabled = False
+        self.skipped = 0
         self.today = NOW.date().isoformat()
 
     def translate(self, text):
@@ -203,26 +219,28 @@ class Translator:
         if hit:
             hit["seen"] = self.today
             return hit["ko"], hit["lang"]
-        if self.disabled:
+        if self.disabled or time.monotonic() < self.resume_at:
+            self.skipped += 1
             return None, None
         url = (
             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q="
             + urllib.parse.quote(text)
         )
         try:
-            data = json.loads(fetch(url, timeout=15).decode("utf-8"))
+            data = json.loads(fetch(url, timeout=15, attempts=2).decode("utf-8"))
             ko = "".join(seg[0] for seg in data[0] if seg and seg[0])
             lang = data[2]
         except Exception as e:
-            self.failures += 1
-            log(f"  번역 실패 ({self.failures}): {e}")
-            if self.failures >= 5:
-                log("  번역이 계속 실패해서 이번 실행에서는 번역을 멈춥니다.")
+            self.skipped += 1
+            self.cooldowns += 1
+            if self.cooldowns > self.MAX_COOLDOWNS:
+                log(f"  번역 실패: {e} — 이번 실행에서는 번역을 그만둡니다 (다음 실행에서 이어서 번역).")
                 self.disabled = True
             else:
-                time.sleep(5 * self.failures)  # 구글이 잠시 막은 경우를 위해 점점 길게 쉰다
+                wait = self.COOLDOWN * self.cooldowns
+                log(f"  번역 실패: {e} — {wait}초 동안 번역을 쉬었다가 다시 시도합니다.")
+                self.resume_at = time.monotonic() + wait
             return None, None
-        self.failures = 0
         self.cache[text] = {"ko": ko, "lang": lang, "seen": self.today}
         time.sleep(0.15)
         return ko, lang
@@ -286,7 +304,7 @@ def read_feed(source):
     return items
 
 
-REDDIT_PAUSE = 4  # 레딧은 연달아 요청하면 잠시 막으므로 사이에 쉰다
+REDDIT_PAUSE = 3  # 레딧은 연달아 요청하면 잠시 막으므로 사이에 쉰다
 
 
 def collect_items(sources, translator, kind):
@@ -727,8 +745,10 @@ def encrypt(text, code):
 def main():
     translator = Translator()
     errors = []
-    news, groups, news_errors = collect_items(NEWS_SOURCES, translator, "news")
+    # 이적 루머를 먼저 모은다: 레딧 기자 보도가 이번 실행의 첫 레딧 요청이 되고,
+    # 일반 레딧 글(뉴스 목록 맨 끝)과는 몇 분 간격이 생겨 레딧이 막을 가능성이 줄어든다.
     transfers, transfer_groups, transfer_errors = collect_items(TRANSFER_SOURCES, translator, "transfer")
+    news, groups, news_errors = collect_items(NEWS_SOURCES, translator, "news")
     injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
     matches = safe("경기 일정", collect_matches, [], errors)
     standings = {
@@ -763,7 +783,9 @@ def main():
     SITE_DIR.mkdir(exist_ok=True)
     (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
     (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
-    log(f"완료: 뉴스 {len(news)}건, 이적 {len(transfers)}건, 실패한 출처 {news_errors + transfer_errors + errors or '없음'}")
+    journalist = sum(1 for t in transfers if t["group"] == "기자 보도")
+    log(f"완료: 뉴스 {len(news)}건, 이적 {len(transfers)}건 (기자 보도 {journalist}건), "
+        f"번역 못 한 제목 {translator.skipped}개, 실패한 출처 {news_errors + transfer_errors + errors or '없음'}")
 
 
 if __name__ == "__main__":

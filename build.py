@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -39,8 +40,8 @@ CACHE_KEEP_DAYS = 14
 PBKDF2_ITERATIONS = 300_000  # 페이지(JS)에서도 이 값을 그대로 받아 쓴다
 
 
-def google_news(lang, country):
-    q = urllib.parse.quote("Liverpool FC when:2d")
+def google_news(lang, country, query="Liverpool FC when:2d"):
+    q = urllib.parse.quote(query)
     return f"https://news.google.com/rss/search?q={q}&hl={lang}&gl={country}&ceid={country}:{lang}"
 
 
@@ -57,6 +58,48 @@ NEWS_SOURCES = [
     {"name": "구글뉴스 프랑스", "group": "프랑스", "lang": "fr", "url": google_news("fr", "FR"), "google": True},
     {"name": "Reddit r/LiverpoolFC", "group": "레딧", "lang": None, "url": "https://www.reddit.com/r/LiverpoolFC/hot/.rss", "reddit": True},
 ]
+
+# 이적 루머 탭 출처.
+# - 기자 보도: r/LiverpoolFC 가 기자별 신뢰도 등급(Tier) 플레어를 붙여 관리하는 글만 검색한다.
+#   제목이 "[Joyce] ..." 처럼 기자 이름으로 시작한다.
+# - 언론 루머: 이적 전용 피드 + 나라별 구글뉴스 이적 검색 (이적 관련 단어가 있는 제목만 남긴다)
+TRANSFER_SOURCES = [
+    {"name": "Reddit 기자 보도", "group": "기자 보도", "lang": None, "reddit": True, "journalist": True,
+     "url": "https://www.reddit.com/r/LiverpoolFC/search.rss?q=flair%3ATier&restrict_sr=1&sort=new"},
+    {"name": "Liverpool Echo", "group": "언론 루머", "lang": "en",
+     "url": "https://www.liverpoolecho.co.uk/all-about/liverpool-fc-transfer-news?service=rss"},
+    {"name": "구글뉴스 영국", "group": "언론 루머", "lang": "en", "google": True, "keywords": True,
+     "url": google_news("en-GB", "GB", "Liverpool transfer when:3d")},
+    {"name": "구글뉴스 스페인", "group": "언론 루머", "lang": "es", "google": True, "keywords": True,
+     "url": google_news("es", "ES", "Liverpool fichaje when:3d")},
+    {"name": "구글뉴스 이탈리아", "group": "언론 루머", "lang": "it", "google": True, "keywords": True,
+     "url": google_news("it", "IT", "Liverpool calciomercato when:3d")},
+    {"name": "구글뉴스 독일", "group": "언론 루머", "lang": "de", "google": True, "keywords": True,
+     "url": google_news("de", "DE", "Liverpool Transfer when:3d")},
+    {"name": "구글뉴스 프랑스", "group": "언론 루머", "lang": "fr", "google": True, "keywords": True,
+     "url": google_news("fr", "FR", "Liverpool mercato when:3d")},
+]
+TRANSFER_MAX_AGE = dt.timedelta(days=4)
+JOURNALIST_MAX_AGE = dt.timedelta(days=21)  # 기자 보도는 자주 올라오지 않아서 더 길게 보여준다
+TRANSFER_PER_SOURCE = 25
+
+# 제목에 이런 단어가 있어야 이적 기사로 본다 (영·스·이·독·프)
+TRANSFER_RE = re.compile(
+    r"transfer|\bsign(s|ed|ing)?\b|\bbid\b|offer|\bfee\b|price tag|[£€$]\s?\d|\bdeal\b|target|swoop|\bloan|contract"
+    r"|release clause|\btalks\b|move for|interest|linked|fichaj|fichar|oferta|traspaso|cesi[oó]n|renov|cl[aá]usula"
+    r"|mercato|trattativ|offerta|nel mirino|rinnovo|acquist|cession|prestito|clausola|wechsel|angebot|abl[oö]se"
+    r"|vertrag|leih|verpflicht|transfert|offre|recrue|contrat|\bpr[eê]t\b|piste",
+    re.I,
+)
+LIVERPOOL_RE = re.compile(r"liverpool|\blfc\b|\breds\b|anfield", re.I)
+# 여러 구단 이적 소식을 한꺼번에 모은 글 ("Calciomercato Inter LIVE | ...", "Ultimissime ...")
+ROUNDUP_RE = re.compile(r"ultimissime|ultim'ora|\bLIVE\s*\||\|\s*LIVE\b|mercato .{0,30}\blive\b", re.I)
+# 경기 무료 중계를 사칭하는 스팸·승부 예측 글
+SPAM_RE = re.compile(
+    r"live ?stream|free stream|streams? (on|free)|how to watch|where to watch|watch .{0,40}\blive\b|\bTV channel"
+    r"|en directo|en vivo|diretta tv|dove vedere|pronostic|prediction|betting|cuotas|quote,? analisi|[!@#$+>\[]{3,}",
+    re.I,
+)
 
 COMPETITIONS = [
     {"slug": "eng.1", "ko": "프리미어리그", "kind": "league"},
@@ -123,7 +166,8 @@ def fetch(url, timeout=20):
                 return r.read()
         except Exception as e:
             last_error = e
-            time.sleep(2)
+            too_many = isinstance(e, urllib.error.HTTPError) and e.code == 429
+            time.sleep(15 if too_many else 2)
     raise last_error
 
 
@@ -136,7 +180,7 @@ def fetch_json(url):
 class Translator:
     """무료 구글 번역. 한 번 번역한 문장은 캐시에 저장해 다시 요청하지 않는다.
 
-    연속으로 실패하면(차단 등) 이번 실행에서는 번역을 멈추고 원문을 그대로 보여준다.
+    실패하면 점점 길게 쉬고, 5번 연속 실패하면(차단 등) 이번 실행에서는 번역을 멈추고 원문을 그대로 보여준다.
     """
 
     def __init__(self):
@@ -172,9 +216,11 @@ class Translator:
         except Exception as e:
             self.failures += 1
             log(f"  번역 실패 ({self.failures}): {e}")
-            if self.failures >= 3:
+            if self.failures >= 5:
                 log("  번역이 계속 실패해서 이번 실행에서는 번역을 멈춥니다.")
                 self.disabled = True
+            else:
+                time.sleep(5 * self.failures)  # 구글이 잠시 막은 경우를 위해 점점 길게 쉰다
             return None, None
         self.failures = 0
         self.cache[text] = {"ko": ko, "lang": lang, "seen": self.today}
@@ -240,10 +286,17 @@ def read_feed(source):
     return items
 
 
-def collect_news(translator):
-    news, errors, seen_titles = [], [], set()
-    for source in NEWS_SOURCES:
-        log(f"뉴스: {source['name']}")
+REDDIT_PAUSE = 4  # 레딧은 연달아 요청하면 잠시 막으므로 사이에 쉰다
+
+
+def collect_items(sources, translator, kind):
+    """출처 목록에서 기사를 모아 번역한다. kind: "news" 또는 "transfer"."""
+    out, errors, seen_titles = [], [], set()
+    per_source = TRANSFER_PER_SOURCE if kind == "transfer" else NEWS_PER_GROUP
+    for source in sources:
+        log(f"{'이적' if kind == 'transfer' else '뉴스'}: {source['name']}")
+        if source.get("reddit"):
+            time.sleep(REDDIT_PAUSE)
         try:
             items = read_feed(source)
         except Exception as e:
@@ -252,37 +305,50 @@ def collect_news(translator):
             continue
         kept = 0
         for item in items:
-            if kept >= NEWS_PER_GROUP or not item["title"] or not item["link"]:
+            title = item["title"]
+            if kept >= per_source or not title or not item["link"] or SPAM_RE.search(title):
                 continue
-            if not source.get("reddit"):
-                if item["published"] is None or NOW - item["published"] > NEWS_MAX_AGE:
+            journalist = None
+            if source.get("journalist"):
+                m = re.match(r"\[([^\]]{1,40})\]\s*[-–:]?\s*(.+)", title)
+                if m:
+                    journalist, title = m.group(1).strip(), m.group(2).strip()
+            if source.get("reddit") and not source.get("journalist"):
+                if title.lower().startswith(("daily discussion", "[daily", "free talk")):
                     continue
-            elif item["title"].lower().startswith(("daily discussion", "[daily", "free talk")):
+            else:
+                max_age = JOURNALIST_MAX_AGE if source.get("journalist") else (
+                    TRANSFER_MAX_AGE if kind == "transfer" else NEWS_MAX_AGE)
+                if item["published"] is None or NOW - item["published"] > max_age:
+                    continue
+            if source.get("keywords") and not (
+                    TRANSFER_RE.search(title) and LIVERPOOL_RE.search(title) and not ROUNDUP_RE.search(title)):
                 continue
-            key = re.sub(r"\W+", "", item["title"].lower())
+            key = re.sub(r"\W+", "", title.lower())
             if key in seen_titles:
                 continue
-            ko, lang = translator.translate(item["title"])
+            ko, lang = translator.translate(title)
             # 구글뉴스 스페인 칸에 영어·인도네시아어 기사가 섞여 들어오는 것을 걸러낸다
-            if source["lang"] and lang and lang != source["lang"]:
+            if source["lang"] and lang and not lang.startswith(source["lang"][:2]):
                 continue
             seen_titles.add(key)
             kept += 1
-            news.append({
-                "title": item["title"],
-                "title_ko": ko if ko and ko != item["title"] else None,
+            out.append({
+                "title": title,
+                "title_ko": ko if ko and ko != title else None,
                 "link": item["link"],
                 "source": item["source"],
                 "group": source["group"],
+                "journalist": journalist,
                 "published": item["published"].isoformat() if item["published"] else None,
             })
         log(f"  {kept}건")
-    news.sort(key=lambda n: n["published"] or "", reverse=True)
+    out.sort(key=lambda n: n["published"] or "", reverse=True)
     groups = []
-    for s in NEWS_SOURCES:
+    for s in sources:
         if s["group"] not in groups:
             groups.append(s["group"])
-    return news, groups, errors
+    return out, groups, errors
 
 
 # ---------------------------------------------------------------- 부상자 (FPL 공식 데이터)
@@ -641,7 +707,8 @@ def encrypt(text, code):
 def main():
     translator = Translator()
     errors = []
-    news, groups, news_errors = collect_news(translator)
+    news, groups, news_errors = collect_items(NEWS_SOURCES, translator, "news")
+    transfers, transfer_groups, transfer_errors = collect_items(TRANSFER_SOURCES, translator, "transfer")
     injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
     matches = safe("경기 일정", collect_matches, [], errors)
     standings = {
@@ -655,6 +722,9 @@ def main():
         "news": news,
         "news_groups": groups,
         "news_errors": news_errors,
+        "transfers": transfers,
+        "transfer_groups": transfer_groups,
+        "transfer_errors": transfer_errors,
         "injuries": injuries,
         "matches": matches,
         "standings": standings,
@@ -673,7 +743,7 @@ def main():
     SITE_DIR.mkdir(exist_ok=True)
     (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
     (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
-    log(f"완료: 뉴스 {len(news)}건, 실패한 출처 {news_errors + errors or '없음'}")
+    log(f"완료: 뉴스 {len(news)}건, 이적 {len(transfers)}건, 실패한 출처 {news_errors + transfer_errors + errors or '없음'}")
 
 
 if __name__ == "__main__":

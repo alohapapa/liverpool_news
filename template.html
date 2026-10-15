@@ -194,6 +194,7 @@
   .news-item .meta { color: var(--muted); font-size: 12px; margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .tag { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 5px; background: var(--red-soft); color: var(--red-ink); }
   .tag.reddit { background: #ffe9dc; color: #c4410f; }
+  .tag.journo { background: var(--yellow); color: #1c1516; }
 
   .row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line); }
   .row:first-child { border-top: 0; }
@@ -310,11 +311,18 @@
 
   <div class="wrap">
     <section class="panel" id="panel-home"></section>
-    <section class="panel" id="panel-news"></section>
+    <section class="panel" id="panel-news">
+      <div class="seg">
+        <button data-sub="news">뉴스</button>
+        <button data-sub="transfer">이적 루머</button>
+      </div>
+      <div class="subpanel" id="sub-news"></div>
+      <div class="subpanel" id="sub-transfer"></div>
+    </section>
     <section class="panel" id="panel-injuries"></section>
     <section class="panel" id="panel-matches"></section>
     <section class="panel" id="panel-comps">
-      <div class="seg" id="seg">
+      <div class="seg">
         <button data-sub="tables">순위</button>
         <button data-sub="comps">대회 현황</button>
       </div>
@@ -421,34 +429,46 @@ function newsItemHtml(n, withTag) {
   return `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">
     <div class="ko">${esc(n.title_ko || n.title)}</div>
     ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : ""}
-    <div class="meta">${withTag ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.source)}</span><span>${ago(n.published)}</span></div>
+    <div class="meta">${n.journalist ? `<span class="tag journo">✍ ${esc(n.journalist)}</span>` : ""}${withTag ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.journalist ? "r/LiverpoolFC" : n.source)}</span><span>${ago(n.published)}</span></div>
   </a>`;
 }
 
-/* ---------- 뉴스 ---------- */
-let newsGroup = store.get("newsGroup") || "전체";
-let newsLimit = 40;
-function renderNews() {
-  const el = document.getElementById("panel-news");
-  const groups = ["전체", ...DATA.news_groups];
-  if (!groups.includes(newsGroup)) newsGroup = "전체";
-  const items = DATA.news.filter((n) => newsGroup === "전체" || n.group === newsGroup);
-  const shown = items.slice(0, newsLimit);
-  let html = `<div class="chips">${groups.map((g) => `<button data-group="${esc(g)}" aria-pressed="${g === newsGroup}">${esc(g)}</button>`).join("")}</div>`;
+/* ---------- 뉴스 · 이적 루머 (같은 모양의 목록) ---------- */
+const FEEDS = {
+  news: {
+    items: () => DATA.news, groups: () => DATA.news_groups, errors: () => DATA.news_errors,
+    notice: "제목을 누르면 원문 기사로 이동해요. 제목은 구글 번역이라 어색할 수 있어요.",
+  },
+  transfer: {
+    items: () => DATA.transfers || [], groups: () => DATA.transfer_groups || [], errors: () => DATA.transfer_errors || [],
+    notice: "✍ 기자 보도: r/LiverpoolFC가 기자별 신뢰도 등급을 매겨 관리하는 글이에요. 언론 루머: 각국 언론의 이적 기사로, 근거가 약한 것도 섞여 있어요.",
+  },
+};
+const feedState = {};
+function renderFeed(name) {
+  const feed = FEEDS[name];
+  const st = feedState[name] || (feedState[name] = { group: store.get("group-" + name) || "전체", limit: 40 });
+  const el = document.getElementById("sub-" + name);
+  const groups = ["전체", ...feed.groups()];
+  if (!groups.includes(st.group)) st.group = "전체";
+  const items = feed.items().filter((n) => st.group === "전체" || n.group === st.group);
+  const shown = items.slice(0, st.limit);
+  let html = `<div class="chips">${groups.map((g) => `<button data-group="${esc(g)}" aria-pressed="${g === st.group}">${esc(g)}</button>`).join("")}</div>`;
   html += `<div class="list">`;
   if (!shown.length) html += `<div class="empty">표시할 기사가 없어요.</div>`;
-  html += shown.map((n) => newsItemHtml(n, newsGroup === "전체")).join("");
-  if (items.length > newsLimit) html += `<button class="more" id="more">더 보기 (${items.length - newsLimit}건 남음)</button>`;
+  html += shown.map((n) => newsItemHtml(n, st.group === "전체")).join("");
+  if (items.length > st.limit) html += `<button class="more">더 보기 (${items.length - st.limit}건 남음)</button>`;
   html += `</div>`;
-  if (DATA.news_errors.length) html += `<div class="notice err">이번에 불러오지 못한 곳: ${DATA.news_errors.map(esc).join(", ")}</div>`;
-  html += `<div class="notice">제목을 누르면 원문 기사로 이동해요. 제목은 구글 번역이라 어색할 수 있어요.</div>`;
+  if (feed.errors().length) html += `<div class="notice err">이번에 불러오지 못한 곳: ${feed.errors().map(esc).join(", ")}</div>`;
+  html += `<div class="notice">${feed.notice}</div>`;
   el.innerHTML = html;
   el.querySelectorAll(".chips button").forEach((b) => b.addEventListener("click", () => {
-    newsGroup = b.dataset.group; newsLimit = 40; store.set("newsGroup", newsGroup); renderNews();
+    st.group = b.dataset.group; st.limit = 40; store.set("group-" + name, st.group); renderFeed(name);
   }));
-  const more = document.getElementById("more");
-  if (more) more.addEventListener("click", () => { newsLimit += 40; renderNews(); });
+  const more = el.querySelector(".more");
+  if (more) more.addEventListener("click", () => { st.limit += 40; renderFeed(name); });
 }
+function renderNews() { renderFeed("news"); renderFeed("transfer"); }
 
 /* ---------- 부상·결장 ---------- */
 function renderInjuries() {
@@ -561,19 +581,25 @@ function goTab(name) {
 document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => goTab(b.dataset.tab)));
 
 /* 순위·대회 탭 안에서 순위 / 대회 현황 고르기 (마지막 선택을 기억) */
-function showSub(name) {
-  document.querySelectorAll("#seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sub === name)));
-  document.querySelectorAll("#panel-comps .subpanel").forEach((s) => (s.hidden = s.id !== "sub-" + name));
-  store.set("sub", name);
+function showSub(panel, name) {
+  panel.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sub === name)));
+  panel.querySelectorAll(".subpanel").forEach((s) => (s.hidden = s.id !== "sub-" + name));
+  store.set("sub-" + panel.id, name);
 }
-document.querySelectorAll("#seg button").forEach((b) => b.addEventListener("click", () => showSub(b.dataset.sub)));
+function restoreSub(panel) {
+  const subs = [...panel.querySelectorAll(".seg button")].map((b) => b.dataset.sub);
+  const saved = store.get("sub-" + panel.id);
+  showSub(panel, subs.includes(saved) ? saved : subs[0]);
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.querySelectorAll("button").forEach((b) =>
+  b.addEventListener("click", () => showSub(seg.closest("section"), b.dataset.sub))));
 
 function start(data) {
   DATA = data;
   document.getElementById("lock").hidden = true;
   document.getElementById("app").hidden = false;
   renderSummary(); renderNews(); renderInjuries(); renderMatches(); renderTables(); renderComps();
-  showSub(store.get("sub") === "comps" ? "comps" : "tables");
+  document.querySelectorAll(".seg").forEach((seg) => restoreSub(seg.closest("section")));
   showTab("home");  // 열 때는 항상 홈에서 시작
 }
 

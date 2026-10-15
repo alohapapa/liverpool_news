@@ -27,11 +27,35 @@
     }
   }
   * { box-sizing: border-box; }
+  /* 빠르게 두 번 눌러도 화면이 확대되지 않게 한다 (두 손가락 확대는 그대로 됨) */
+  html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: var(--font);
     font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: contain;  /* 브라우저 기본 새로고침 대신 아래의 '당겨서 새로고침'을 쓴다 */
+    -webkit-tap-highlight-color: transparent;
   }
+
+  /* ---------- 당겨서 새로고침 ---------- */
+  .ptr {
+    position: fixed; top: 0; left: 50%; z-index: 30; display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 999px; background: var(--card); color: var(--text);
+    box-shadow: 0 4px 16px rgba(0,0,0,.18); font-size: 13px; font-weight: 700;
+    transform: translate(-50%, -60px); opacity: 0; pointer-events: none;
+  }
+  .ptr svg { width: 18px; height: 18px; fill: none; stroke: var(--red); stroke-width: 2.4; stroke-linecap: round; transition: transform .15s; }
+  .ptr.ready svg { transform: rotate(180deg); }
+  .ptr.loading svg { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- 부상·결장 ---------- */
+  .basis { margin-bottom: 12px; padding: 11px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .basis b { color: var(--text); }
+  .ban { margin-top: 6px; font-size: 13.5px; line-height: 1.7; }
+  .ban span { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 5px; font-size: 11.5px; font-weight: 800; }
+  .ban .no { background: var(--bad-soft); color: var(--bad); }
+  .ban .ok { background: var(--good-soft); color: var(--good); }
   a { color: inherit; text-decoration: none; }
   [hidden] { display: none !important; }
   .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
@@ -297,6 +321,8 @@
   </div>
 </form>
 
+<div class="ptr" id="ptr"><svg viewBox="0 0 24 24"><path d="M12 4v14M6 12l6 6 6-6"/></svg><span>당겨서 새로고침</span></div>
+
 <div id="app" hidden>
   <header class="hero" id="hero">
     <div class="wrap">
@@ -477,21 +503,30 @@ function renderInjuries() {
   const el = document.getElementById("panel-injuries");
   if (DATA.injuries === null) { el.innerHTML = `<div class="list"><div class="empty">부상자 정보를 불러오지 못했어요.</div></div>`; return; }
   const tone = { s: "bad", i: "bad", d: "neutral", u: "neutral", n: "neutral" };
-  let html = `<div class="list">`;
+  let html = `<div class="basis">
+    <div><b>부상</b> · 모든 대회에 해당돼요.</div>
+    <div><b>출장 정지</b> · <b>프리미어리그</b> 기준이에요. 챔스·컵대회 징계는 따로라 여기 나오지 않을 수 있어요.</div>
+  </div><div class="list">`;
   if (!DATA.injuries.length) html += `<div class="empty">현재 부상·결장 선수가 없어요. 완전체!</div>`;
+  const game = (g) => `${fmtDay(g.date)} ${esc(g.opp)}전`;
   for (const p of DATA.injuries) {
     const pill = p.status === "d" && p.chance != null ? `출전 ${p.chance}%` : p.status_ko;
+    const ban = p.ban ? `<div class="ban">
+        ${p.ban.missed.length ? `<div><span class="no">결장</span>${p.ban.missed.map(game).join(", ")}</div>` : ""}
+        ${p.ban.back ? `<div><span class="ok">출전 가능</span>${game(p.ban.back)}부터</div>` : ""}
+      </div>` : "";
     html += `<div class="row">
       <div class="pos">${esc(p.pos)}</div>
       <div class="grow">
         <div><b>${esc(p.name)}</b> <span class="sub">${esc(p.full)}</span></div>
         <div>${esc(p.news_ko || p.news)}</div>
+        ${ban}
         ${p.news_ko ? `<div class="sub">${esc(p.news)}${p.added ? " · " + ago(p.added) + " 갱신" : ""}</div>` : ""}
       </div>
       <span class="pill tone-${tone[p.status] || "neutral"}">${esc(pill)}</span>
     </div>`;
   }
-  html += `</div><div class="notice">출처: 프리미어리그 공식 판타지(FPL). 프리미어리그 경기 기준이라 컵대회 전용 징계는 빠질 수 있어요.</div>`;
+  html += `</div><div class="notice">출처: 프리미어리그 공식 판타지(FPL).</div>`;
   el.innerHTML = html;
 }
 
@@ -648,6 +683,48 @@ document.getElementById("forget").addEventListener("click", () => {
   store.set("code", "");
   location.reload();
 });
+/* ---------- 당겨서 새로고침 ----------
+   홈 화면에 추가한 앱 모드에서는 휴대폰 기본 '당겨서 새로고침'이 없어서 직접 만든다.
+   맨 위에서 아래로 당긴 뒤 충분히 내려오면 "놓으면 새로고침" → 손을 떼면 새로고침. */
+(function pullToRefresh() {
+  const el = document.getElementById("ptr");
+  const label = el.querySelector("span");
+  const MAX = 100, READY = 60;
+  let startY = null, pull = 0;
+  const show = (y, text, cls) => {
+    el.style.transform = `translate(-50%, ${y}px)`;
+    el.style.opacity = String(Math.min(1, (y + 50) / 60));
+    el.className = "ptr " + (cls || "");
+    label.textContent = text;
+  };
+  const reset = () => {
+    startY = null; pull = 0;
+    el.style.transition = "transform .2s, opacity .2s";
+    show(-60, "당겨서 새로고침");
+    setTimeout(() => (el.style.transition = ""), 200);
+  };
+  addEventListener("touchstart", (e) => {
+    const appOpen = !document.getElementById("app").hidden;
+    startY = appOpen && window.scrollY <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null;
+  }, { passive: true });
+  addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    const dist = e.touches[0].clientY - startY;
+    if (dist <= 0 || window.scrollY > 0) { if (pull) reset(); else startY = null; return; }
+    pull = Math.min(dist * 0.5, MAX);
+    show(pull - 50, pull >= READY ? "놓으면 새로고침" : "당겨서 새로고침", pull >= READY ? "ready" : "");
+  }, { passive: true });
+  addEventListener("touchend", () => {
+    if (startY === null) return;
+    if (pull >= READY) {
+      show(16, "새로고침 중…", "loading");
+      location.reload();
+    } else {
+      reset();
+    }
+  });
+})();
+
 boot();
 </script>
 </body>

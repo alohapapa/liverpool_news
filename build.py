@@ -429,6 +429,31 @@ def collect_injuries(translator):
     return out
 
 
+def explain_suspensions(injuries, matches):
+    """FPL의 "Suspended until 25 Oct" 를 실제 일정에 맞춰 풀어 쓴다.
+
+    FPL은 프리미어리그 기준이고, 적힌 날짜는 징계가 풀려 다시 뛸 수 있는 날이다.
+    그 날짜 전의 프리미어리그 경기는 결장, 그 날짜 이후 첫 경기부터 출전 가능.
+    """
+    pl = [m for m in matches if m["comp_slug"] == "eng.1" and m["state"] != "post"]
+    for p in injuries or []:
+        m = re.search(r"suspended until (\d{1,2}) (\w{3})", p["news"], re.I)
+        if p["status"] != "s" or not m or m.group(2).lower() not in MONTHS:
+            continue
+        added = parse_date(p.get("added")) or NOW
+        month, day = MONTHS[m.group(2).lower()], int(m.group(1))
+        year = added.year + (1 if month < added.month else 0)
+        free_from = dt.date(year, month, day)
+        uk_day = lambda x: (parse_date(x["date"]) + dt.timedelta(hours=1)).date()  # 영국 날짜 기준으로 비교
+        brief = lambda x: {"opp": x["away"] if x["home"] == TEAM_KO["Liverpool"] else x["home"], "date": x["date"]}
+        p["ban"] = {
+            "missed": [brief(x) for x in pl if uk_day(x) < free_from],
+            "back": next((brief(x) for x in pl if uk_day(x) >= free_from), None),
+        }
+        p["status_ko"] = "PL 출장 정지"
+        p["news_ko"] = "프리미어리그 출장 정지"
+
+
 # ---------------------------------------------------------------- 일정·결과·순위 (ESPN)
 
 def team_ko(name):
@@ -751,6 +776,7 @@ def main():
     news, groups, news_errors = collect_items(NEWS_SOURCES, translator, "news")
     injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
     matches = safe("경기 일정", collect_matches, [], errors)
+    explain_suspensions(injuries, matches)
     standings = {
         "pl": safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors),
         "ucl": safe("챔피언스리그 순위", lambda: collect_standings("uefa.champions"), [], errors),

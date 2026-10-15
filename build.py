@@ -1,0 +1,533 @@
+"""리버풀 소식 모음 사이트를 만든다.
+
+뉴스(현지 언론·레딧), 부상자(FPL 공식), 일정·결과·순위(ESPN)를 모아
+site/index.html 한 파일로 저장한다. 외부 라이브러리 없이 파이썬 기본 기능만 쓴다.
+"""
+
+import datetime as dt
+import email.utils
+import html
+import json
+import re
+import sys
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+SITE_DIR = ROOT / "site"
+TEMPLATE = ROOT / "template.html"
+CACHE_FILE = ROOT / "cache" / "translations.json"
+
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+)
+KST = dt.timezone(dt.timedelta(hours=9))
+NOW = dt.datetime.now(dt.timezone.utc)
+
+ESPN_TEAM_ID = "364"  # 리버풀
+FPL_TEAM_NAME = "Liverpool"
+NEWS_MAX_AGE = dt.timedelta(days=3)
+NEWS_PER_GROUP = 40
+CACHE_KEEP_DAYS = 14
+
+
+def google_news(lang, country):
+    q = urllib.parse.quote("Liverpool FC when:2d")
+    return f"https://news.google.com/rss/search?q={q}&hl={lang}&gl={country}&ceid={country}:{lang}"
+
+
+# group: 사이트에서 묶어 보여줄 이름 / lang: 기대 언어(구글뉴스는 다른 언어 기사를 걸러낸다)
+NEWS_SOURCES = [
+    {"name": "BBC Sport", "group": "영국", "lang": "en", "url": "https://feeds.bbci.co.uk/sport/football/teams/liverpool/rss.xml"},
+    {"name": "The Guardian", "group": "영국", "lang": "en", "url": "https://www.theguardian.com/football/liverpool/rss"},
+    {"name": "Liverpool Echo", "group": "영국", "lang": "en", "url": "https://www.liverpoolecho.co.uk/all-about/liverpool-fc?service=rss"},
+    {"name": "Sky Sports", "group": "영국", "lang": "en", "url": "https://www.skysports.com/rss/11669"},
+    {"name": "This Is Anfield", "group": "영국", "lang": "en", "url": "https://www.thisisanfield.com/feed/"},
+    {"name": "구글뉴스 스페인", "group": "스페인", "lang": "es", "url": google_news("es", "ES"), "google": True},
+    {"name": "구글뉴스 이탈리아", "group": "이탈리아", "lang": "it", "url": google_news("it", "IT"), "google": True},
+    {"name": "구글뉴스 독일", "group": "독일", "lang": "de", "url": google_news("de", "DE"), "google": True},
+    {"name": "구글뉴스 프랑스", "group": "프랑스", "lang": "fr", "url": google_news("fr", "FR"), "google": True},
+    {"name": "Reddit r/LiverpoolFC", "group": "레딧", "lang": None, "url": "https://www.reddit.com/r/LiverpoolFC/hot/.rss", "reddit": True},
+]
+
+COMPETITIONS = [
+    {"slug": "eng.1", "ko": "프리미어리그", "kind": "league"},
+    {"slug": "uefa.champions", "ko": "챔피언스리그", "kind": "ucl"},
+    {"slug": "eng.league_cup", "ko": "카라바오컵", "kind": "cup"},
+    {"slug": "eng.fa", "ko": "FA컵", "kind": "cup"},
+]
+
+TEAM_KO = {
+    "Liverpool": "리버풀", "Manchester City": "맨체스터 시티", "Arsenal": "아스널",
+    "Brighton & Hove Albion": "브라이턴", "Brentford": "브렌트퍼드", "Everton": "에버턴",
+    "Chelsea": "첼시", "Leeds United": "리즈", "Hull City": "헐 시티", "Ipswich Town": "입스위치",
+    "Newcastle United": "뉴캐슬", "Crystal Palace": "크리스탈 팰리스", "Manchester United": "맨체스터 유나이티드",
+    "Coventry City": "코번트리", "Nottingham Forest": "노팅엄 포리스트", "Aston Villa": "아스톤 빌라",
+    "Sunderland": "선덜랜드", "AFC Bournemouth": "본머스", "Tottenham Hotspur": "토트넘", "Fulham": "풀럼",
+    "West Ham United": "웨스트햄", "Wolverhampton Wanderers": "울버햄튼", "Burnley": "번리",
+    "Leicester City": "레스터", "Southampton": "사우샘프턴", "Sheffield United": "셰필드 유나이티드",
+    "Wrexham": "렉섬", "Middlesbrough": "미들즈브러", "Norwich City": "노리치", "Watford": "왓퍼드",
+    "West Bromwich Albion": "웨스트 브롬", "Stoke City": "스토크", "Swansea City": "스완지",
+    "Paris Saint-Germain": "파리 생제르맹", "Barcelona": "바르셀로나", "VfB Stuttgart": "슈투트가르트",
+    "Sporting CP": "스포르팅", "Real Madrid": "레알 마드리드", "Real Betis": "레알 베티스",
+    "Bayern Munich": "바이에른 뮌헨", "Shakhtar Donetsk": "샤흐타르", "Como": "코모", "Villarreal": "비야레알",
+    "Atlético Madrid": "아틀레티코 마드리드", "Club Brugge": "클뤼프 브뤼허", "Borussia Dortmund": "도르트문트",
+    "Lens": "랑스", "AEK Athens": "AEK 아테네", "RB Leipzig": "라이프치히", "Sabah FK": "사바흐",
+    "Feyenoord Rotterdam": "페예노르트", "Bodo/Glimt": "보되/글림트", "AS Roma": "AS 로마",
+    "PSV Eindhoven": "PSV", "Viking FK": "바이킹", "Fenerbahce": "페네르바체", "Internazionale": "인테르",
+    "FC Porto": "포르투", "Slavia Prague": "슬라비아 프라하", "Napoli": "나폴리", "LASK Linz": "LASK 린츠",
+    "Lille": "릴", "Galatasaray": "갈라타사라이", "Slovan Bratislava": "슬로반 브라티슬라바",
+    "Juventus": "유벤투스", "AC Milan": "AC 밀란", "Atalanta": "아탈란타", "Bayer Leverkusen": "레버쿠젠",
+    "Eintracht Frankfurt": "프랑크푸르트", "Benfica": "벤피카", "Ajax Amsterdam": "아약스", "Celtic": "셀틱",
+    "Marseille": "마르세유", "AS Monaco": "모나코", "Olympiacos": "올림피아코스", "FC Copenhagen": "코펜하겐",
+    "Athletic Club": "아틀레틱 빌바오", "Red Bull Salzburg": "잘츠부르크", "Young Boys": "영 보이스",
+}
+
+FPL_POS = {1: "GK", 2: "DF", 3: "MF", 4: "FW"}
+FPL_STATUS_KO = {"i": "부상", "d": "출전 불투명", "s": "출장 정지", "u": "결장", "n": "출전 불가"}
+BODY_KO = {
+    "knee": "무릎", "ankle": "발목", "hamstring": "햄스트링", "thigh": "허벅지", "achilles": "아킬레스건",
+    "groin": "사타구니", "calf": "종아리", "foot": "발", "back": "허리", "lower back": "허리", "hip": "고관절",
+    "shoulder": "어깨", "muscle": "근육", "head": "머리", "toe": "발가락", "hand": "손", "wrist": "손목",
+    "rib": "갈비뼈", "adductor": "내전근", "quad": "대퇴사두근", "heel": "뒤꿈치", "leg": "다리",
+    "neck": "목", "abdominal": "복부", "elbow": "팔꿈치", "facial": "얼굴", "collarbone": "쇄골",
+    "arm": "팔", "finger": "손가락", "pelvic": "골반", "eye": "눈", "jaw": "턱", "knee ligament": "무릎 인대",
+    "ankle ligament": "발목 인대", "cruciate ligament": "십자인대", "metatarsal": "중족골", "chest": "가슴",
+}
+FPL_PHRASE_KO = {
+    "unknown return date": "복귀 시점 미정", "illness": "질병", "knock": "타박상",
+    "lack of match fitness": "경기 체력 부족", "personal reasons": "개인 사정", "concussion": "뇌진탕",
+    "ill": "질병", "virus": "바이러스 감염", "awaiting assessment": "검사 대기 중",
+}
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def fetch(url, timeout=20):
+    last_error = None
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en,ko;q=0.8"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as e:
+            last_error = e
+            time.sleep(2)
+    raise last_error
+
+
+def fetch_json(url):
+    return json.loads(fetch(url).decode("utf-8"))
+
+
+# ---------------------------------------------------------------- 번역 (무료 구글 번역, 캐시 사용)
+
+class Translator:
+    """무료 구글 번역. 한 번 번역한 문장은 캐시에 저장해 다시 요청하지 않는다.
+
+    연속으로 실패하면(차단 등) 이번 실행에서는 번역을 멈추고 원문을 그대로 보여준다.
+    """
+
+    def __init__(self):
+        self.cache = {}
+        if CACHE_FILE.exists():
+            try:
+                self.cache = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+            except ValueError:
+                self.cache = {}
+        self.failures = 0
+        self.disabled = False
+        self.today = NOW.date().isoformat()
+
+    def translate(self, text):
+        """(한국어, 감지된 언어) 를 돌려준다. 실패하면 (None, None)."""
+        text = text.strip()
+        if not text:
+            return None, None
+        hit = self.cache.get(text)
+        if hit:
+            hit["seen"] = self.today
+            return hit["ko"], hit["lang"]
+        if self.disabled:
+            return None, None
+        url = (
+            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q="
+            + urllib.parse.quote(text)
+        )
+        try:
+            data = json.loads(fetch(url, timeout=15).decode("utf-8"))
+            ko = "".join(seg[0] for seg in data[0] if seg and seg[0])
+            lang = data[2]
+        except Exception as e:
+            self.failures += 1
+            log(f"  번역 실패 ({self.failures}): {e}")
+            if self.failures >= 3:
+                log("  번역이 계속 실패해서 이번 실행에서는 번역을 멈춥니다.")
+                self.disabled = True
+            return None, None
+        self.failures = 0
+        self.cache[text] = {"ko": ko, "lang": lang, "seen": self.today}
+        time.sleep(0.15)
+        return ko, lang
+
+    def save(self):
+        cutoff = (NOW.date() - dt.timedelta(days=CACHE_KEEP_DAYS)).isoformat()
+        kept = {k: v for k, v in self.cache.items() if v.get("seen", "") >= cutoff}
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+
+
+# ---------------------------------------------------------------- 뉴스
+
+ATOM = "{http://www.w3.org/2005/Atom}"
+
+
+def parse_date(text):
+    if not text:
+        return None
+    text = text.strip()
+    try:
+        d = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        try:
+            d = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    return d
+
+
+def clean(text):
+    text = html.unescape(re.sub(r"<[^>]+>", "", text or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def read_feed(source):
+    root = ET.fromstring(fetch(source["url"]))
+    items = []
+    for it in root.iter("item"):
+        title = clean(it.findtext("title"))
+        publisher = clean(it.findtext("source")) if source.get("google") else source["name"]
+        # 구글뉴스 제목은 "기사 제목 - 언론사" 형태라 언론사 이름을 떼어낸다 (번역되면 안 되므로)
+        if source.get("google") and publisher and title.endswith(" - " + publisher):
+            title = title[: -len(" - " + publisher)].strip()
+        items.append({
+            "title": title,
+            "link": (it.findtext("link") or "").strip(),
+            "published": parse_date(it.findtext("pubDate")),
+            "source": publisher or source["name"],
+        })
+    for entry in root.iter(ATOM + "entry"):
+        link_el = entry.find(ATOM + "link")
+        items.append({
+            "title": clean(entry.findtext(ATOM + "title")),
+            "link": link_el.get("href") if link_el is not None else "",
+            "published": parse_date(entry.findtext(ATOM + "published") or entry.findtext(ATOM + "updated")),
+            "source": source["name"],
+        })
+    return items
+
+
+def collect_news(translator):
+    news, errors, seen_titles = [], [], set()
+    for source in NEWS_SOURCES:
+        log(f"뉴스: {source['name']}")
+        try:
+            items = read_feed(source)
+        except Exception as e:
+            log(f"  불러오기 실패: {e}")
+            errors.append(source["name"])
+            continue
+        kept = 0
+        for item in items:
+            if kept >= NEWS_PER_GROUP or not item["title"] or not item["link"]:
+                continue
+            if not source.get("reddit"):
+                if item["published"] is None or NOW - item["published"] > NEWS_MAX_AGE:
+                    continue
+            elif item["title"].lower().startswith(("daily discussion", "[daily", "free talk")):
+                continue
+            key = re.sub(r"\W+", "", item["title"].lower())
+            if key in seen_titles:
+                continue
+            ko, lang = translator.translate(item["title"])
+            # 구글뉴스 스페인 칸에 영어·인도네시아어 기사가 섞여 들어오는 것을 걸러낸다
+            if source["lang"] and lang and lang != source["lang"]:
+                continue
+            seen_titles.add(key)
+            kept += 1
+            news.append({
+                "title": item["title"],
+                "title_ko": ko if ko and ko != item["title"] else None,
+                "link": item["link"],
+                "source": item["source"],
+                "group": source["group"],
+                "published": item["published"].isoformat() if item["published"] else None,
+            })
+        log(f"  {kept}건")
+    news.sort(key=lambda n: n["published"] or "", reverse=True)
+    groups = []
+    for s in NEWS_SOURCES:
+        if s["group"] not in groups:
+            groups.append(s["group"])
+    return news, groups, errors
+
+
+# ---------------------------------------------------------------- 부상자 (FPL 공식 데이터)
+
+def fpl_phrase_ko(phrase):
+    p = phrase.strip().rstrip(".")
+    low = p.lower()
+    if low in FPL_PHRASE_KO:
+        return FPL_PHRASE_KO[low]
+    m = re.fullmatch(r"(.+?) (injury|problem|strain|surgery|fracture)", low)
+    if m and m.group(1) in BODY_KO:
+        suffix = {"injury": "부상", "problem": "문제", "strain": "염좌", "surgery": "수술", "fracture": "골절"}[m.group(2)]
+        return f"{BODY_KO[m.group(1)]} {suffix}"
+    m = re.fullmatch(r"(\d+)% chance of playing", low)
+    if m:
+        return f"출전 가능성 {m.group(1)}%"
+    m = re.fullmatch(r"expected back (\d{1,2}) (\w{3})\w*", low)
+    if m and m.group(2) in MONTHS:
+        return f"{MONTHS[m.group(2)]}월 {int(m.group(1))}일 복귀 예상"
+    m = re.fullmatch(r"suspended until (\d{1,2}) (\w{3})\w*", low)
+    if m and m.group(2) in MONTHS:
+        return f"{MONTHS[m.group(2)]}월 {int(m.group(1))}일까지 출장 정지"
+    return None
+
+
+def fpl_news_ko(news, translator):
+    parts = [fpl_phrase_ko(p) for p in news.split(" - ")]
+    if all(parts):
+        return " · ".join(parts)
+    ko, _ = translator.translate(news)
+    return ko
+
+
+def collect_injuries(translator):
+    log("부상자: FPL")
+    data = fetch_json("https://fantasy.premierleague.com/api/bootstrap-static/")
+    team_id = next(t["id"] for t in data["teams"] if t["name"] == FPL_TEAM_NAME)
+    out = []
+    for p in data["elements"]:
+        if p["team"] != team_id or p["status"] == "a":
+            continue
+        news = (p.get("news") or "").strip()
+        # 이적·임대로 팀을 떠난 선수는 부상자 목록에서 뺀다
+        if re.match(r"(has )?(joined|left)\b", news, re.I):
+            continue
+        out.append({
+            "name": p["web_name"],
+            "full": f"{p['first_name']} {p['second_name']}".strip(),
+            "pos": FPL_POS.get(p["element_type"], ""),
+            "status": p["status"],
+            "status_ko": FPL_STATUS_KO.get(p["status"], p["status"]),
+            "chance": p.get("chance_of_playing_next_round"),
+            "news": news,
+            "news_ko": fpl_news_ko(news, translator) if news else None,
+            "added": p.get("news_added"),
+        })
+    order = {"s": 0, "i": 1, "d": 2, "n": 3, "u": 4}
+    out.sort(key=lambda x: (order.get(x["status"], 9), x["name"]))
+    log(f"  {len(out)}명")
+    return out
+
+
+# ---------------------------------------------------------------- 일정·결과·순위 (ESPN)
+
+def team_ko(name):
+    return TEAM_KO.get(name, name)
+
+
+def logo_of(team):
+    logos = team.get("logos") or []
+    if logos:
+        return logos[0].get("href")
+    return team.get("logo")
+
+
+def season_start():
+    year = NOW.year if NOW.month >= 7 else NOW.year - 1
+    return dt.datetime(year, 7, 1, tzinfo=dt.timezone.utc)
+
+
+def parse_event(event, comp):
+    c = event["competitions"][0]
+    status = c["status"]["type"]
+    home = next(x for x in c["competitors"] if x["homeAway"] == "home")
+    away = next(x for x in c["competitors"] if x["homeAway"] == "away")
+
+    def score(x):
+        s = x.get("score")
+        if isinstance(s, dict):
+            return s.get("displayValue")
+        return s
+
+    lfc = home if home["team"]["id"] == ESPN_TEAM_ID else away
+    opp = away if lfc is home else home
+    result = None
+    if status["completed"]:
+        if lfc.get("winner"):
+            result = "W"
+        elif opp.get("winner"):
+            result = "L"
+        else:
+            result = "D"
+    return {
+        "id": event["id"],
+        "date": event["date"],
+        "comp": comp["ko"],
+        "comp_slug": comp["slug"],
+        "home": team_ko(home["team"]["displayName"]),
+        "away": team_ko(away["team"]["displayName"]),
+        "home_logo": logo_of(home["team"]),
+        "away_logo": logo_of(away["team"]),
+        "home_score": score(home) if status["state"] != "pre" else None,
+        "away_score": score(away) if status["state"] != "pre" else None,
+        "state": status["state"],
+        "detail": status.get("shortDetail"),
+        "result": result,
+        "venue": (c.get("venue") or {}).get("fullName"),
+    }
+
+
+def collect_matches():
+    matches = {}
+    base = "https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/teams/" + ESPN_TEAM_ID + "/schedule"
+    start = season_start()
+    for comp in COMPETITIONS:
+        for suffix in ("", "?fixture=true"):
+            url = base.format(slug=comp["slug"]) + suffix
+            try:
+                events = fetch_json(url).get("events", [])
+            except Exception as e:
+                log(f"  {comp['ko']} 일정 실패: {e}")
+                continue
+            for e in events:
+                when = parse_date(e["date"])
+                if when and when >= start:
+                    matches[e["id"]] = parse_event(e, comp)
+    out = sorted(matches.values(), key=lambda m: m["date"])
+    log(f"경기: {len(out)}개")
+    return out
+
+
+def collect_standings(slug):
+    data = fetch_json(f"https://site.api.espn.com/apis/v2/sports/soccer/{slug}/standings")
+    entries = data["children"][0]["standings"]["entries"]
+    rows = []
+    for e in entries:
+        stats = {s["name"]: s.get("displayValue") for s in e["stats"]}
+        rows.append({
+            "rank": int(stats.get("rank") or 0),
+            "team": team_ko(e["team"]["displayName"]),
+            "logo": logo_of(e["team"]),
+            "p": stats.get("gamesPlayed"), "w": stats.get("wins"), "d": stats.get("ties"),
+            "l": stats.get("losses"), "gd": stats.get("pointDifferential"), "pts": stats.get("points"),
+            "me": e["team"]["id"] == ESPN_TEAM_ID,
+        })
+    rows.sort(key=lambda r: r["rank"])
+    return rows
+
+
+def ucl_zone(rank):
+    if rank <= 8:
+        return "16강 직행권"
+    if rank <= 24:
+        return "플레이오프권"
+    return "탈락권"
+
+
+def competition_status(matches, standings):
+    out = []
+    for comp in COMPETITIONS:
+        ms = [m for m in matches if m["comp_slug"] == comp["slug"]]
+        upcoming = [m for m in ms if m["state"] != "post"]
+        done = [m for m in ms if m["state"] == "post"]
+        nxt = upcoming[0] if upcoming else None
+        item = {"name": comp["ko"], "status": "", "detail": "", "next": nxt, "tone": "neutral"}
+        if comp["kind"] == "league":
+            me = next((r for r in standings.get("pl", []) if r["me"]), None)
+            if me:
+                item["status"] = f"{me['rank']}위"
+                item["detail"] = f"{me['p']}경기 {me['w']}승 {me['d']}무 {me['l']}패 · 승점 {me['pts']}"
+                item["tone"] = "good" if me["rank"] <= 4 else "neutral"
+        elif comp["kind"] == "ucl":
+            me = next((r for r in standings.get("ucl", []) if r["me"]), None)
+            if me:
+                item["status"] = f"리그 페이즈 {me['rank']}위 · {ucl_zone(me['rank'])}"
+                item["detail"] = f"{me['p']}경기 {me['w']}승 {me['d']}무 {me['l']}패 · 승점 {me['pts']}"
+                item["tone"] = {"16강 직행권": "good", "플레이오프권": "neutral", "탈락권": "bad"}[ucl_zone(me["rank"])]
+            elif done or upcoming:
+                item["status"] = "진행 중"
+        else:
+            last = done[-1] if done else None
+            if nxt:
+                item["status"] = "진행 중"
+                item["tone"] = "good"
+            elif last and last["result"] == "L":
+                item["status"] = "탈락"
+                item["tone"] = "bad"
+            elif last:
+                item["status"] = "다음 라운드 진출 (대진 대기)"
+                item["tone"] = "good"
+            else:
+                item["status"] = "아직 시작 전"
+            if last:
+                item["detail"] = f"최근: {last['home']} {last['home_score']}-{last['away_score']} {last['away']}"
+        out.append(item)
+    return out
+
+
+# ---------------------------------------------------------------- 조립
+
+def safe(label, fn, default, errors):
+    try:
+        return fn()
+    except Exception as e:
+        log(f"{label} 실패: {e}")
+        errors.append(label)
+        return default
+
+
+def main():
+    translator = Translator()
+    errors = []
+    news, groups, news_errors = collect_news(translator)
+    injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
+    matches = safe("경기 일정", collect_matches, [], errors)
+    standings = {
+        "pl": safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors),
+        "ucl": safe("챔피언스리그 순위", lambda: collect_standings("uefa.champions"), [], errors),
+    }
+    translator.save()
+
+    data = {
+        "generated": NOW.isoformat(),
+        "news": news,
+        "news_groups": groups,
+        "news_errors": news_errors,
+        "injuries": injuries,
+        "matches": matches,
+        "standings": standings,
+        "competitions": competition_status(matches, standings),
+        "errors": errors,
+    }
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    page = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", payload)
+    SITE_DIR.mkdir(exist_ok=True)
+    (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
+    (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    log(f"완료: 뉴스 {len(news)}건, 실패한 출처 {news_errors + errors or '없음'}")
+
+
+if __name__ == "__main__":
+    main()

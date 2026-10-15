@@ -2,167 +2,272 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#c8102e">
+<meta name="apple-mobile-web-app-title" content="리버풀 소식">
 <title>리버풀 소식</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c8102e'/%3E%3Ctext x='16' y='22' font-size='16' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3ELFC%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="https://a.espncdn.com/i/teamlogos/soccer/500/364.png">
+<link rel="apple-touch-icon" href="https://a.espncdn.com/i/teamlogos/soccer/500/364.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Black+Han+Sans&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
+  /* 리버풀 공식 색: 레드 #C8102E · 청록 #00B2A9 · 노랑 #F6EB61 */
   :root {
-    --bg: #f6f5f3; --card: #ffffff; --text: #1d1b1a; --muted: #6f6a66; --line: #e7e3df;
-    --red: #c8102e; --red-soft: #fbe9ec; --good: #1a7f4b; --good-soft: #e3f4ea;
-    --warn: #a86400; --warn-soft: #fdf1dc; --bad: #b3261e; --bad-soft: #fbe5e3;
+    --red: #c8102e; --red-deep: #8a0a1f; --red-ink: #c8102e; --teal: #00a39b; --yellow: #f6eb61;
+    --bg: #f5f2ef; --card: #ffffff; --text: #1c1516; --muted: #75696a; --line: #ebe4e1;
+    --red-soft: #fcebee; --good: #11845b; --good-soft: #def3ea; --warn: #9a6a00; --warn-soft: #fbf1d6;
+    --bad: #c8102e; --bad-soft: #fcebee; --shadow: 0 1px 2px rgba(60, 10, 20, .06), 0 6px 20px rgba(60, 10, 20, .06);
+    --display: "Bebas Neue", "Black Han Sans", sans-serif;
+    --title: "Black Han Sans", "Pretendard Variable", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #141212; --card: #1e1b1b; --text: #f1eeec; --muted: #a29b97; --line: #332e2d;
-      --red: #ef3e57; --red-soft: #3a1a20; --good: #5cc98d; --good-soft: #17301f;
-      --warn: #f0b44c; --warn-soft: #362812; --bad: #ff7a70; --bad-soft: #3a1b18;
+      --bg: #120c0d; --card: #1e1517; --text: #f4eeec; --muted: #a8999a; --line: #33272a; --red-ink: #ff5c74;
+      --red-soft: #3a161d; --good: #4fd19a; --good-soft: #143026; --warn: #f0c04c; --warn-soft: #362a10;
+      --bad: #ff5c74; --bad-soft: #3a161d; --shadow: none;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
     font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; text-decoration: none; }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }
-  header.top { background: var(--red); color: #fff; }
-  header.top .wrap { padding-top: 20px; padding-bottom: 16px; }
-  header.top h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
-  header.top .updated { font-size: 13px; opacity: 0.85; margin-top: 2px; }
+  [hidden] { display: none !important; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
 
-  .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
-  .summary .next { grid-column: 1 / -1; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
-  .label { font-size: 12px; color: var(--muted); font-weight: 600; }
-  .big { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-  .next-teams { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-weight: 700; font-size: 17px; flex-wrap: wrap; }
-  .next-teams img { width: 26px; height: 26px; object-fit: contain; }
-  .dday { display: inline-block; background: var(--red); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 700; margin-left: 6px; vertical-align: 2px; }
+  /* ---------- 헤더: 레드 그라데이션 + 은은한 줄무늬 ---------- */
+  .hero {
+    color: #fff; padding: calc(18px + env(safe-area-inset-top)) 0 64px;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.035) 0 14px, transparent 14px 28px),
+      radial-gradient(120% 140% at 85% 0%, #e5193d 0%, var(--red) 45%, var(--red-deep) 100%);
+  }
+  .hero .brand { display: flex; align-items: center; gap: 12px; }
+  /* 엠블럼이 빨간색이라 빨간 배경에 묻히지 않도록 흰 원형 배지 위에 올린다 */
+  .badge {
+    flex: none; display: grid; place-items: center; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 0 3px rgba(246, 235, 97, .9), 0 4px 14px rgba(0,0,0,.25);
+  }
+  .badge img { object-fit: contain; }
+  .hero .badge { width: 54px; height: 54px; }
+  .hero .badge img { width: 38px; height: 38px; }
+  .hero h1 { margin: 0; font-family: var(--title); font-weight: 400; font-size: 27px; letter-spacing: .01em; line-height: 1.1; }
+  .ynwa { font-family: var(--display); letter-spacing: .18em; font-size: 14px; color: var(--yellow); margin-top: 3px; }
+  .hero .updated { font-size: 12.5px; opacity: .82; margin-top: 12px; }
 
+  /* ---------- 다음 경기 카드 (헤더 위로 겹쳐 올라옴) ---------- */
+  .matchday {
+    margin-top: -48px; position: relative; border-radius: 18px; overflow: hidden; box-shadow: var(--shadow);
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .matchday .bar {
+    display: flex; justify-content: space-between; align-items: center; padding: 9px 16px;
+    background: #1c1516; color: #fff; font-size: 12.5px; font-weight: 600;
+  }
+  .matchday .bar .md { font-family: var(--display); letter-spacing: .16em; font-size: 15px; color: var(--yellow); }
+  .matchday .vs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 18px 12px 6px; text-align: center; }
+  .matchday .side img { width: 58px; height: 58px; object-fit: contain; }
+  .matchday .side div { font-weight: 700; margin-top: 6px; font-size: 15px; }
+  .matchday .side.lfc div { color: var(--red-ink); }
+  .matchday .mid { padding: 0 8px; }
+  .matchday .kick { font-family: var(--display); font-size: 40px; line-height: 1; letter-spacing: .02em; }
+  .matchday .date { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .dday {
+    display: inline-block; margin-top: 8px; background: var(--yellow); color: #1c1516; border-radius: 6px;
+    padding: 1px 10px; font-family: var(--display); font-size: 18px; letter-spacing: .06em;
+  }
+  .matchday .venue { text-align: center; font-size: 12.5px; color: var(--muted); padding: 4px 16px 14px; }
+
+  /* ---------- 순위·폼 요약 ---------- */
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .stat { border-top: 3px solid var(--red); }
+  .stat.ucl { border-top-color: var(--teal); }
+  .label { font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .02em; }
+  .big { font-family: var(--display); font-size: 42px; line-height: 1; margin-top: 4px; }
+  .big small { font-family: var(--title); font-size: 16px; margin-left: 2px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .form { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .form .dots { display: flex; gap: 6px; }
+  .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 800; color: #fff; }
+  .dot.W { background: var(--good); } .dot.D { background: #8c8486; } .dot.L { background: var(--red); }
+
+  /* ---------- 탭 ---------- */
   nav.tabs {
-    position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 18px -16px 0; padding: 10px 16px;
-    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5; margin: 18px -16px 0; padding: 0 16px;
+    display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
   }
   nav.tabs::-webkit-scrollbar { display: none; }
-  nav.tabs button, .chips button {
-    flex: none; border: 1px solid var(--line); background: var(--card); color: var(--text);
-    border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  nav.tabs button {
+    flex: none; border: 0; background: none; color: var(--muted); padding: 13px 10px 11px; font: inherit;
+    font-size: 15px; font-weight: 700; cursor: pointer; border-bottom: 3px solid transparent;
   }
-  nav.tabs button[aria-selected="true"], .chips button[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: #fff; }
+  nav.tabs button[aria-selected="true"] { color: var(--red-ink); border-bottom-color: var(--red); }
   section.panel { display: none; padding-top: 14px; }
   section.panel.active { display: block; }
-  h2 { font-size: 16px; margin: 20px 0 8px; }
-  h2:first-child { margin-top: 4px; }
+  h2 { font-family: var(--title); font-weight: 400; font-size: 18px; margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; }
+  h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--red); }
+  h2.teal::before { background: var(--teal); }
+  section.panel > h2:first-child { margin-top: 4px; }
 
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-  .chips button { padding: 5px 12px; font-size: 13px; }
-  .list { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-  .news-item { display: block; padding: 12px 16px; border-top: 1px solid var(--line); }
+  /* ---------- 공통 목록 ---------- */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chips button {
+    border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px;
+    padding: 6px 13px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .chips button[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: #fff; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+  .news-item { display: block; padding: 13px 16px; border-top: 1px solid var(--line); }
   .news-item:first-child { border-top: 0; }
   .news-item:hover { background: var(--red-soft); }
-  .news-item .ko { font-weight: 650; font-size: 15.5px; }
-  .news-item .orig { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .news-item .meta { color: var(--muted); font-size: 12px; margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--red-soft); color: var(--red); }
+  .news-item .ko { font-weight: 700; font-size: 15.5px; line-height: 1.45; }
+  .news-item .orig { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .news-item .meta { color: var(--muted); font-size: 12px; margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tag { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 5px; background: var(--red-soft); color: var(--red-ink); }
+  .tag.reddit { background: #ffe9dc; color: #c4410f; }
 
-  .row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line); }
   .row:first-child { border-top: 0; }
   .grow { flex: 1; min-width: 0; }
-  .pill { flex: none; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+  .pill { flex: none; font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 999px; }
   .tone-good { background: var(--good-soft); color: var(--good); }
   .tone-neutral { background: var(--warn-soft); color: var(--warn); }
   .tone-bad { background: var(--bad-soft); color: var(--bad); }
-  .sub { color: var(--muted); font-size: 13px; }
-  .pos { flex: none; width: 30px; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .pos {
+    flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    font-family: var(--display); font-size: 17px; letter-spacing: .04em; background: var(--red-soft); color: var(--red-ink);
+  }
 
+  /* ---------- 경기 ---------- */
   .match { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
   .match:first-child { border-top: 0; }
   .match .head { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
   .team { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 0; }
   .team.away { flex-direction: row-reverse; text-align: right; }
-  .team img { width: 22px; height: 22px; object-fit: contain; flex: none; }
+  .team img { width: 24px; height: 24px; object-fit: contain; flex: none; }
   .team span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .team.lfc { color: var(--red); }
-  .score { font-weight: 800; font-size: 17px; min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
-  .score.time { font-size: 14px; font-weight: 700; }
-  .res { font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 5px; }
-  .res-W { background: var(--good-soft); color: var(--good); }
-  .res-D { background: var(--warn-soft); color: var(--warn); }
-  .res-L { background: var(--bad-soft); color: var(--bad); }
+  .team.lfc { color: var(--red-ink); font-weight: 800; }
+  .score { font-family: var(--display); font-size: 26px; line-height: 1; min-width: 70px; text-align: center; letter-spacing: .04em; }
+  .score.time { font-size: 22px; color: var(--muted); }
+  .res { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 5px; color: #fff; }
+  .res-W { background: var(--good); } .res-D { background: #8c8486; } .res-L { background: var(--red); }
 
-  .table-wrap { overflow-x: auto; }
+  /* ---------- 순위표 ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-  th, td { padding: 8px 6px; text-align: center; border-top: 1px solid var(--line); white-space: nowrap; }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; border-top: 0; }
+  th, td { padding: 9px 6px; text-align: center; border-top: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 700; border-top: 0; }
   td.tname { text-align: left; width: 100%; max-width: 0; }
   td.tname div { display: flex; align-items: center; gap: 8px; }
   td.tname span { overflow: hidden; text-overflow: ellipsis; }
   td.tname img { width: 20px; height: 20px; object-fit: contain; flex: none; }
-  @media (max-width: 480px) { .wdl { display: none; } th, td { padding: 8px 5px; } }
-  tr.me td { background: var(--red-soft); font-weight: 700; }
-  td.rank { width: 36px; font-weight: 700; position: relative; }
+  td.pts { font-family: var(--display); font-size: 19px; letter-spacing: .03em; }
+  tr.me td { background: var(--red); color: #fff; font-weight: 800; }
+  tr.me td.rank { box-shadow: inset 4px 0 0 var(--yellow) !important; }
+  td.rank { width: 36px; font-weight: 800; }
   tr.z-good td.rank { box-shadow: inset 3px 0 0 var(--good); }
   tr.z-neutral td.rank { box-shadow: inset 3px 0 0 var(--warn); }
-  tr.z-bad td.rank { box-shadow: inset 3px 0 0 var(--bad); }
+  tr.z-bad td.rank { box-shadow: inset 3px 0 0 #8c8486; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 8px 2px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  @media (max-width: 480px) { .wdl { display: none; } th, td { padding: 9px 5px; } }
 
-  .empty { padding: 20px 16px; color: var(--muted); text-align: center; }
-  .notice { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .empty { padding: 22px 16px; color: var(--muted); text-align: center; }
+  .notice { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
   .notice.err { color: var(--bad); }
-  .lock { max-width: 360px; margin: 48px auto 0; padding: 0 16px; text-align: center; }
-  .lock p { color: var(--muted); margin: 6px 0 18px; }
+  .more { display: block; width: 100%; padding: 13px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--red-ink); font: inherit; font-weight: 800; cursor: pointer; }
+
+  /* ---------- 맨 아래: 안필드 터널 표지판 ---------- */
+  footer { text-align: center; padding: 40px 0 calc(32px + env(safe-area-inset-bottom)); }
+  .anfield {
+    display: inline-block; background: var(--red); color: #fff; border: 3px solid #fff; outline: 3px solid var(--red);
+    padding: 10px 26px 8px; border-radius: 4px; font-family: var(--display); font-size: 30px; letter-spacing: .16em; line-height: 1;
+  }
+  .forget { display: block; margin: 18px auto 0; background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+
+  /* ---------- 접속 코드 화면 ---------- */
+  .lock {
+    position: fixed; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); color: #fff; text-align: center;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.035) 0 14px, transparent 14px 28px),
+      radial-gradient(120% 100% at 50% 0%, #e5193d 0%, var(--red) 45%, var(--red-deep) 100%);
+  }
+  .lock .badge { width: 112px; height: 112px; }
+  .lock .badge img { width: 78px; height: 78px; }
+  .lock h2 { justify-content: center; font-size: 26px; margin: 16px 0 0; }
+  .lock h2::before { display: none; }
+  .lock .ynwa { font-size: 16px; margin-top: 4px; }
+  .lock p { opacity: .85; font-size: 14px; margin: 22px 0 12px; }
+  .lock .box { width: 100%; max-width: 320px; }
   .lock input {
-    width: 100%; padding: 13px 14px; font: inherit; font-size: 16px; border-radius: 12px;
-    border: 1px solid var(--line); background: var(--card); color: var(--text); text-align: center;
+    width: 100%; padding: 14px; font: inherit; font-size: 16px; border-radius: 12px; border: 0; text-align: center;
+    background: #fff; color: #1c1516;
   }
   .lock button {
-    width: 100%; margin-top: 10px; padding: 13px; border: 0; border-radius: 12px;
-    background: var(--red); color: #fff; font: inherit; font-weight: 700; font-size: 16px; cursor: pointer;
+    width: 100%; margin-top: 10px; padding: 14px; border: 0; border-radius: 12px; cursor: pointer;
+    background: var(--yellow); color: #1c1516; font-family: var(--display); font-size: 22px; letter-spacing: .12em;
   }
-  .lock button:disabled { opacity: 0.6; }
-  .lock .msg { min-height: 22px; margin-top: 10px; font-size: 14px; color: var(--bad); }
-  .forget { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; padding: 0; margin-top: 24px; }
-  [hidden] { display: none !important; }
-  .more { display: block; width: 100%; padding: 12px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--red); font: inherit; font-weight: 700; cursor: pointer; }
+  .lock button:disabled { opacity: .6; }
+  .lock .msg { min-height: 22px; margin-top: 10px; font-size: 14px; color: var(--yellow); font-weight: 700; }
 </style>
 </head>
 <body>
-<header class="top">
-  <div class="wrap">
-    <h1>리버풀 소식</h1>
-    <div class="updated" id="updated"></div>
-  </div>
-</header>
-
 <form class="lock" id="lock" hidden>
-  <h2>접속 코드를 입력하세요</h2>
-  <p>이 기기에서 한 번만 입력하면 다음부터는 자동으로 열려요.</p>
-  <input id="code" type="password" autocomplete="current-password" placeholder="접속 코드" required>
-  <button type="submit" id="unlock">열기</button>
-  <div class="msg" id="lock-msg"></div>
+  <div class="badge"><img src="https://a.espncdn.com/i/teamlogos/soccer/500/364.png" alt=""></div>
+  <h2>리버풀 소식</h2>
+  <div class="ynwa">YOU'LL NEVER WALK ALONE</div>
+  <p>접속 코드를 입력하세요. 이 기기에서는 한 번만 입력하면 돼요.</p>
+  <div class="box">
+    <input id="code" type="password" autocomplete="current-password" placeholder="접속 코드" required>
+    <button type="submit" id="unlock">ENTER ANFIELD</button>
+    <div class="msg" id="lock-msg"></div>
+  </div>
 </form>
 
-<div class="wrap" id="app" hidden>
-  <div class="summary" id="summary"></div>
+<div id="app" hidden>
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand">
+        <div class="badge"><img src="https://a.espncdn.com/i/teamlogos/soccer/500/364.png" alt=""></div>
+        <div>
+          <h1>리버풀 소식</h1>
+          <div class="ynwa">YOU'LL NEVER WALK ALONE</div>
+        </div>
+      </div>
+      <div class="updated" id="updated"></div>
+    </div>
+  </header>
 
-  <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" data-tab="news">뉴스</button>
-    <button role="tab" data-tab="injuries">부상·결장</button>
-    <button role="tab" data-tab="matches">일정·결과</button>
-    <button role="tab" data-tab="tables">순위</button>
-    <button role="tab" data-tab="comps">대회 현황</button>
-  </nav>
+  <div class="wrap">
+    <div id="summary"></div>
 
-  <section class="panel" id="panel-news"></section>
-  <section class="panel" id="panel-injuries"></section>
-  <section class="panel" id="panel-matches"></section>
-  <section class="panel" id="panel-tables"></section>
-  <section class="panel" id="panel-comps"></section>
-  <button class="forget" id="forget" hidden>이 기기에서 접속 코드 지우기</button>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="news">뉴스</button>
+      <button role="tab" data-tab="injuries">부상·결장</button>
+      <button role="tab" data-tab="matches">일정·결과</button>
+      <button role="tab" data-tab="tables">순위</button>
+      <button role="tab" data-tab="comps">대회 현황</button>
+    </nav>
+
+    <section class="panel" id="panel-news"></section>
+    <section class="panel" id="panel-injuries"></section>
+    <section class="panel" id="panel-matches"></section>
+    <section class="panel" id="panel-tables"></section>
+    <section class="panel" id="panel-comps"></section>
+
+    <footer>
+      <div class="anfield">THIS IS ANFIELD</div>
+      <button class="forget" id="forget" hidden>이 기기에서 접속 코드 지우기</button>
+    </footer>
+  </div>
 </div>
 
 <script>
@@ -182,6 +287,7 @@ const kstParts = (iso) => {
 };
 const fmtDate = (iso) => { const p = kstParts(iso); return `${p.month}월 ${p.day}일 (${p.weekday}) ${p.hour}:${p.minute}`; };
 const fmtDay = (iso) => { const p = kstParts(iso); return `${p.month}/${p.day} (${p.weekday})`; };
+const fmtLongDay = (iso) => { const p = kstParts(iso); return `${p.month}월 ${p.day}일 (${p.weekday})`; };
 const fmtTime = (iso) => { const p = kstParts(iso); return `${p.hour}:${p.minute}`; };
 const ago = (iso) => {
   if (!iso) return "";
@@ -194,28 +300,45 @@ const ago = (iso) => {
 const dday = (iso) => {
   const day = (d) => new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d));
   const n = Math.round((day(new Date(iso)) - day(new Date())) / 86400000);
-  return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `D+${-n}`;
+  return n === 0 ? "D-DAY" : n > 0 ? `D-${n}` : `D+${-n}`;
 };
 const img = (src) => (src ? `<img src="${esc(src)}" alt="" loading="lazy">` : "");
 const isLfc = (name) => name === "리버풀";
+const RES_KO = { W: "승", D: "무", L: "패" };
 
-/* ---------- 상단 요약 ---------- */
+/* ---------- 상단 요약: 다음 경기 · 순위 · 최근 폼 ---------- */
 function renderSummary() {
   const next = DATA.matches.find((m) => m.state !== "post");
   const pl = DATA.standings.pl.find((r) => r.me);
   const ucl = DATA.standings.ucl.find((r) => r.me);
+  const form = DATA.matches.filter((m) => m.result).slice(-5);
   let html = "";
   if (next) {
-    html += `<div class="card next">
-      <div class="label">다음 경기 · ${esc(next.comp)}</div>
-      <div class="next-teams">${img(next.home_logo)}${esc(next.home)} <span class="sub">vs</span> ${img(next.away_logo)}${esc(next.away)}</div>
-      <div class="sub">${fmtDate(next.date)} <span class="dday">${dday(next.date)}</span>${next.venue ? " · " + esc(next.venue) : ""}</div>
+    const live = next.state === "in";
+    html += `<div class="matchday">
+      <div class="bar"><span class="md">${live ? "LIVE" : "NEXT MATCH"}</span><span>${esc(next.comp)}</span></div>
+      <div class="vs">
+        <div class="side ${isLfc(next.home) ? "lfc" : ""}">${img(next.home_logo)}<div>${esc(next.home)}</div></div>
+        <div class="mid">
+          <div class="kick">${live ? `${esc(next.home_score)} - ${esc(next.away_score)}` : fmtTime(next.date)}</div>
+          <div class="date">${fmtLongDay(next.date)}</div>
+          <span class="dday">${live ? esc(next.detail || "LIVE") : dday(next.date)}</span>
+        </div>
+        <div class="side ${isLfc(next.away) ? "lfc" : ""}">${img(next.away_logo)}<div>${esc(next.away)}</div></div>
+      </div>
+      ${next.venue ? `<div class="venue">${esc(next.venue)}</div>` : ""}
     </div>`;
   }
-  if (pl) html += `<div class="card"><div class="label">프리미어리그</div><div class="big">${pl.rank}위</div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div></div>`;
-  if (ucl) html += `<div class="card"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}위</div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div></div>`;
+  html += `<div class="stats">`;
+  if (pl) html += `<div class="card stat"><div class="label">프리미어리그</div><div class="big">${pl.rank}<small>위</small></div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div></div>`;
+  if (ucl) html += `<div class="card stat ucl"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}<small>위</small></div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div></div>`;
+  if (form.length) {
+    html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">왼쪽이 오래된 경기</div></div>
+      <div class="dots">${form.map((m) => `<span class="dot ${m.result}" title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
+  }
+  html += `</div>`;
   document.getElementById("summary").innerHTML = html;
-  document.getElementById("updated").textContent = `${fmtDate(DATA.generated)} 업데이트 (${ago(DATA.generated)})`;
+  document.getElementById("updated").textContent = `${fmtDate(DATA.generated)} 업데이트 · ${ago(DATA.generated)}`;
 }
 
 /* ---------- 뉴스 ---------- */
@@ -234,7 +357,7 @@ function renderNews() {
     html += `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">
       <div class="ko">${esc(n.title_ko || n.title)}</div>
       ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : ""}
-      <div class="meta">${newsGroup === "전체" ? `<span class="tag">${esc(n.group)}</span>` : ""}<span>${esc(n.source)}</span><span>${ago(n.published)}</span></div>
+      <div class="meta">${newsGroup === "전체" ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.source)}</span><span>${ago(n.published)}</span></div>
     </a>`;
   }
   if (items.length > newsLimit) html += `<button class="more" id="more">더 보기 (${items.length - newsLimit}건 남음)</button>`;
@@ -255,7 +378,7 @@ function renderInjuries() {
   if (DATA.injuries === null) { el.innerHTML = `<div class="list"><div class="empty">부상자 정보를 불러오지 못했어요.</div></div>`; return; }
   const tone = { s: "bad", i: "bad", d: "neutral", u: "neutral", n: "neutral" };
   let html = `<div class="list">`;
-  if (!DATA.injuries.length) html += `<div class="empty">현재 부상·결장 선수가 없어요.</div>`;
+  if (!DATA.injuries.length) html += `<div class="empty">현재 부상·결장 선수가 없어요. 완전체!</div>`;
   for (const p of DATA.injuries) {
     const pill = p.status === "d" && p.chance != null ? `출전 ${p.chance}%` : p.status_ko;
     html += `<div class="row">
@@ -277,9 +400,9 @@ function matchRow(m) {
   const center = m.state === "pre"
     ? `<div class="score time">${fmtTime(m.date)}</div>`
     : `<div class="score">${esc(m.home_score)} - ${esc(m.away_score)}</div>`;
-  const live = m.state === "in" ? ` · <b style="color:var(--red)">진행 중 ${esc(m.detail || "")}</b>` : "";
+  const live = m.state === "in" ? ` · <b style="color:var(--red-ink)">진행 중 ${esc(m.detail || "")}</b>` : "";
   return `<div class="match">
-    <div class="head"><span>${fmtDay(m.date)} · ${esc(m.comp)}${live}</span>${m.result ? `<span class="res res-${m.result}">${{ W: "승", D: "무", L: "패" }[m.result]}</span>` : ""}</div>
+    <div class="head"><span>${fmtDay(m.date)} · ${esc(m.comp)}${live}</span>${m.result ? `<span class="res res-${m.result}">${RES_KO[m.result]}</span>` : ""}</div>
     <div class="team ${isLfc(m.home) ? "lfc" : ""}">${img(m.home_logo)}<span>${esc(m.home)}</span></div>
     ${center}
     <div class="team away ${isLfc(m.away) ? "lfc" : ""}">${img(m.away_logo)}<span>${esc(m.away)}</span></div>
@@ -298,11 +421,11 @@ function renderMatches() {
 /* ---------- 순위 ---------- */
 function tableHtml(rows, zoneOf) {
   if (!rows.length) return `<div class="list"><div class="empty">순위를 불러오지 못했어요.</div></div>`;
-  return `<div class="list table-wrap"><table>
+  return `<div class="list"><table>
     <thead><tr><th>#</th><th style="text-align:left">팀</th><th>경기</th><th class="wdl">승</th><th class="wdl">무</th><th class="wdl">패</th><th>득실</th><th>승점</th></tr></thead>
     <tbody>${rows.map((r) => `<tr class="${r.me ? "me" : ""} ${zoneOf ? "z-" + zoneOf(r.rank) : ""}">
       <td class="rank">${r.rank}</td><td class="tname"><div>${img(r.logo)}<span>${esc(r.team)}</span></div></td>
-      <td>${esc(r.p)}</td><td class="wdl">${esc(r.w)}</td><td class="wdl">${esc(r.d)}</td><td class="wdl">${esc(r.l)}</td><td>${esc(r.gd)}</td><td><b>${esc(r.pts)}</b></td>
+      <td>${esc(r.p)}</td><td class="wdl">${esc(r.w)}</td><td class="wdl">${esc(r.d)}</td><td class="wdl">${esc(r.l)}</td><td>${esc(r.gd)}</td><td class="pts">${esc(r.pts)}</td>
     </tr>`).join("")}</tbody></table></div>`;
 }
 function renderTables() {
@@ -310,9 +433,9 @@ function renderTables() {
   const plZone = (r) => (r <= 4 ? "good" : r >= 18 ? "bad" : "");
   const uclZone = (r) => (r <= 8 ? "good" : r <= 24 ? "neutral" : "bad");
   el.innerHTML = `<h2>프리미어리그</h2>${tableHtml(DATA.standings.pl, plZone)}
-    <div class="legend"><span><i style="background:var(--good)"></i>챔스 진출권(1~4위)</span><span><i style="background:var(--bad)"></i>강등권</span></div>
-    <h2>챔피언스리그 리그 페이즈</h2>${tableHtml(DATA.standings.ucl, uclZone)}
-    <div class="legend"><span><i style="background:var(--good)"></i>16강 직행 (1~8위)</span><span><i style="background:var(--warn)"></i>플레이오프 (9~24위)</span><span><i style="background:var(--bad)"></i>탈락 (25~36위)</span></div>`;
+    <div class="legend"><span><i style="background:var(--good)"></i>챔스 진출권(1~4위)</span><span><i style="background:#8c8486"></i>강등권</span></div>
+    <h2 class="teal">챔피언스리그 리그 페이즈</h2>${tableHtml(DATA.standings.ucl, uclZone)}
+    <div class="legend"><span><i style="background:var(--good)"></i>16강 직행 (1~8위)</span><span><i style="background:var(--warn)"></i>플레이오프 (9~24위)</span><span><i style="background:#8c8486"></i>탈락 (25~36위)</span></div>`;
 }
 
 /* ---------- 대회 현황 ---------- */

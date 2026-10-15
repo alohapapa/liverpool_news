@@ -33,8 +33,18 @@ jobs:
           key: translations-${{ github.run_id }}
           restore-keys: translations-
 
+      - run: pip install -r requirements.txt
+
       - name: 소식 모으기
-        run: python build.py
+        env:
+          SITE_CODE: ${{ secrets.SITE_CODE }}
+        run: |
+          # 접속 코드가 없으면 잠기지 않은 사이트가 올라가므로 여기서 멈춘다
+          if [ -z "$SITE_CODE" ]; then
+            echo "::error::저장소 Settings > Secrets and variables > Actions 에 SITE_CODE 를 등록해야 합니다."
+            exit 1
+          fi
+          python build.py
 
       - uses: actions/upload-pages-artifact@v4
         with:

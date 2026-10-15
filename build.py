@@ -4,10 +4,13 @@
 site/index.html 한 파일로 저장한다. 외부 라이브러리 없이 파이썬 기본 기능만 쓴다.
 """
 
+import base64
 import datetime as dt
 import email.utils
+import hashlib
 import html
 import json
+import os
 import re
 import sys
 import time
@@ -33,6 +36,7 @@ FPL_TEAM_NAME = "Liverpool"
 NEWS_MAX_AGE = dt.timedelta(days=3)
 NEWS_PER_GROUP = 40
 CACHE_KEEP_DAYS = 14
+PBKDF2_ITERATIONS = 300_000  # 페이지(JS)에서도 이 값을 그대로 받아 쓴다
 
 
 def google_news(lang, country):
@@ -498,6 +502,20 @@ def safe(label, fn, default, errors):
         return default
 
 
+def encrypt(text, code):
+    """접속 코드로 페이지 내용을 잠근다 (AES-GCM, 키는 PBKDF2-SHA256으로 만든다).
+
+    페이지는 브라우저 기본 암호 기능(WebCrypto)으로 같은 방식으로 풀어낸다.
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt, iv = os.urandom(16), os.urandom(12)
+    key = hashlib.pbkdf2_hmac("sha256", code.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    sealed = AESGCM(key).encrypt(iv, text.encode("utf-8"), None)
+    b64 = lambda b: base64.b64encode(b).decode("ascii")
+    return {"locked": True, "salt": b64(salt), "iv": b64(iv), "iter": PBKDF2_ITERATIONS, "data": b64(sealed)}
+
+
 def main():
     translator = Translator()
     errors = []
@@ -521,7 +539,14 @@ def main():
         "competitions": competition_status(matches, standings),
         "errors": errors,
     }
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    payload = json.dumps(data, ensure_ascii=False)
+    code = os.environ.get("SITE_CODE", "").strip()
+    if code:
+        payload = json.dumps(encrypt(payload, code))
+        log("접속 코드로 잠갔습니다.")
+    else:
+        log("SITE_CODE가 없어 잠그지 않았습니다 (내 PC 미리보기용).")
+    payload = payload.replace("</", "<\\/")
     page = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", payload)
     SITE_DIR.mkdir(exist_ok=True)
     (SITE_DIR / "index.html").write_text(page, encoding="utf-8")

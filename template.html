@@ -113,6 +113,20 @@
   .empty { padding: 20px 16px; color: var(--muted); text-align: center; }
   .notice { margin-top: 12px; font-size: 13px; color: var(--muted); }
   .notice.err { color: var(--bad); }
+  .lock { max-width: 360px; margin: 48px auto 0; padding: 0 16px; text-align: center; }
+  .lock p { color: var(--muted); margin: 6px 0 18px; }
+  .lock input {
+    width: 100%; padding: 13px 14px; font: inherit; font-size: 16px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); text-align: center;
+  }
+  .lock button {
+    width: 100%; margin-top: 10px; padding: 13px; border: 0; border-radius: 12px;
+    background: var(--red); color: #fff; font: inherit; font-weight: 700; font-size: 16px; cursor: pointer;
+  }
+  .lock button:disabled { opacity: 0.6; }
+  .lock .msg { min-height: 22px; margin-top: 10px; font-size: 14px; color: var(--bad); }
+  .forget { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; padding: 0; margin-top: 24px; }
+  [hidden] { display: none !important; }
   .more { display: block; width: 100%; padding: 12px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--red); font: inherit; font-weight: 700; cursor: pointer; }
 </style>
 </head>
@@ -124,7 +138,15 @@
   </div>
 </header>
 
-<div class="wrap">
+<form class="lock" id="lock" hidden>
+  <h2>접속 코드를 입력하세요</h2>
+  <p>이 기기에서 한 번만 입력하면 다음부터는 자동으로 열려요.</p>
+  <input id="code" type="password" autocomplete="current-password" placeholder="접속 코드" required>
+  <button type="submit" id="unlock">열기</button>
+  <div class="msg" id="lock-msg"></div>
+</form>
+
+<div class="wrap" id="app" hidden>
   <div class="summary" id="summary"></div>
 
   <nav class="tabs" role="tablist" id="tabs">
@@ -140,10 +162,12 @@
   <section class="panel" id="panel-matches"></section>
   <section class="panel" id="panel-tables"></section>
   <section class="panel" id="panel-comps"></section>
+  <button class="forget" id="forget" hidden>이 기기에서 접속 코드 지우기</button>
 </div>
 
 <script>
-const DATA = /*__DATA__*/null;
+const RAW = /*__DATA__*/null;
+let DATA = null;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const store = {
@@ -319,9 +343,58 @@ document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("cli
   if (window.scrollY > navTop) window.scrollTo(0, navTop);
 }));
 
-renderSummary(); renderNews(); renderInjuries(); renderMatches(); renderTables(); renderComps();
-const savedTab = store.get("tab");
-showTab(document.getElementById("panel-" + savedTab) ? savedTab : "news");
+function start(data) {
+  DATA = data;
+  document.getElementById("lock").hidden = true;
+  document.getElementById("app").hidden = false;
+  renderSummary(); renderNews(); renderInjuries(); renderMatches(); renderTables(); renderComps();
+  const savedTab = store.get("tab");
+  showTab(document.getElementById("panel-" + savedTab) ? savedTab : "news");
+}
+
+/* ---------- 접속 코드 (build.py 의 encrypt 와 같은 방식으로 푼다) ---------- */
+async function unlock(code) {
+  const bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: bytes(RAW.salt), iterations: RAW.iter, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(RAW.iv) }, key, bytes(RAW.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function boot() {
+  if (!RAW.locked) { start(RAW); return; }
+  document.getElementById("forget").hidden = false;
+  const saved = store.get("code");
+  if (saved) {
+    try { start(await unlock(saved)); return; } catch (e) { store.set("code", ""); }
+  }
+  const form = document.getElementById("lock");
+  const input = document.getElementById("code");
+  const btn = document.getElementById("unlock");
+  const msg = document.getElementById("lock-msg");
+  form.hidden = false;
+  input.focus();
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const code = input.value.trim();
+    btn.disabled = true; msg.textContent = "";
+    try {
+      const data = await unlock(code);
+      store.set("code", code);
+      start(data);
+    } catch (e) {
+      msg.textContent = "코드가 맞지 않아요.";
+      btn.disabled = false; input.select();
+    }
+  });
+}
+document.getElementById("forget").addEventListener("click", () => {
+  store.set("code", "");
+  location.reload();
+});
+boot();
 </script>
 </body>
 </html>

@@ -417,6 +417,24 @@ def team_ko(name):
     return TEAM_KO.get(name, name)
 
 
+# 순위표는 칸이 많아 휴대폰에서 좁으므로, 긴 이름은 흔히 부르는 짧은 이름으로 보여준다
+TEAM_SHORT = {
+    "Manchester City": "맨시티", "Manchester United": "맨유", "Nottingham Forest": "노팅엄",
+    "Crystal Palace": "팰리스", "Brighton & Hove Albion": "브라이턴", "Tottenham Hotspur": "토트넘",
+    "Wolverhampton Wanderers": "울버햄튼", "West Ham United": "웨스트햄", "Sheffield United": "셰필드",
+    "West Bromwich Albion": "웨스트 브롬", "Paris Saint-Germain": "PSG", "Bayern Munich": "뮌헨",
+    "Real Madrid": "레알", "Atlético Madrid": "아틀레티코", "Borussia Dortmund": "도르트문트",
+    "Club Brugge": "브뤼허", "Slavia Prague": "슬라비아", "Slovan Bratislava": "슬로반",
+    "Feyenoord Rotterdam": "페예노르트", "Bayer Leverkusen": "레버쿠젠", "Eintracht Frankfurt": "프랑크푸르트",
+    "Shakhtar Donetsk": "샤흐타르", "Galatasaray": "갈라타사라이", "Red Bull Salzburg": "잘츠부르크",
+    "Athletic Club": "빌바오", "LASK Linz": "LASK", "AEK Athens": "AEK", "AS Roma": "로마", "AC Milan": "밀란",
+}
+
+
+def team_short(name):
+    return TEAM_SHORT.get(name) or team_ko(name)
+
+
 def logo_of(team):
     logos = team.get("logos") or []
     if logos:
@@ -503,9 +521,11 @@ def collect_standings(slug):
         rows.append({
             "rank": int(stats.get("rank") or 0),
             "team": team_ko(e["team"]["displayName"]),
+            "short": team_short(e["team"]["displayName"]),
             "logo": logo_of(e["team"]),
             "p": stats.get("gamesPlayed"), "w": stats.get("wins"), "d": stats.get("ties"),
-            "l": stats.get("losses"), "gd": stats.get("pointDifferential"), "pts": stats.get("points"),
+            "l": stats.get("losses"), "gf": stats.get("pointsFor"), "ga": stats.get("pointsAgainst"),
+            "gd": stats.get("pointDifferential"), "pts": stats.get("points"),
             "me": e["team"]["id"] == ESPN_TEAM_ID,
         })
     rows.sort(key=lambda r: r["rank"])

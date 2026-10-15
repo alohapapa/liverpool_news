@@ -223,24 +223,26 @@
   .res-W { background: var(--good); } .res-D { background: #8c8486; } .res-L { background: var(--red); }
 
   /* ---------- 순위표 ---------- */
-  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-  th, td { padding: 9px 6px; text-align: center; border-top: 1px solid var(--line); white-space: nowrap; }
-  th { font-size: 12px; color: var(--muted); font-weight: 700; border-top: 0; }
-  td.tname { text-align: left; width: 100%; max-width: 0; }
-  td.tname div { display: flex; align-items: center; gap: 8px; }
+  /* 칸이 많아 좁은 화면에서는 옆으로 밀어 볼 수 있게 하고, 순위·팀 칸은 왼쪽에 고정한다 */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 3px; text-align: center; border-top: 1px solid var(--line); white-space: nowrap; min-width: 24px; }
+  th { font-size: 11.5px; color: var(--muted); font-weight: 700; border-top: 0; }
+  th.rank, td.rank { position: sticky; left: 0; z-index: 1; background: var(--card); width: 30px; min-width: 30px; font-weight: 800; }
+  th.tname, td.tname { position: sticky; left: 30px; z-index: 1; background: var(--card); text-align: left; min-width: 88px; max-width: 120px; }
+  td.tname div { display: flex; align-items: center; gap: 6px; }
   td.tname span { overflow: hidden; text-overflow: ellipsis; }
-  td.tname img { width: 20px; height: 20px; object-fit: contain; flex: none; }
-  td.pts { font-weight: 800; font-size: 15px; }
+  td.tname img { width: 19px; height: 19px; object-fit: contain; flex: none; }
+  .gsep { border-left: 1px dashed var(--line); }
+  td.pts { font-weight: 800; font-size: 15px; padding-right: 8px; }
   tr.me td { background: var(--red); color: #fff; font-weight: 800; }
   tr.me td.tname img { background: #fff; border-radius: 50%; padding: 2px; }
   tr.me td.rank { box-shadow: inset 4px 0 0 var(--yellow) !important; }
-  td.rank { width: 36px; font-weight: 800; }
   tr.z-good td.rank { box-shadow: inset 3px 0 0 var(--good); }
   tr.z-neutral td.rank { box-shadow: inset 3px 0 0 var(--warn); }
   tr.z-bad td.rank { box-shadow: inset 3px 0 0 #8c8486; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 8px 2px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
-  @media (max-width: 480px) { .wdl { display: none; } th, td { padding: 9px 5px; } }
 
   .empty { padding: 22px 16px; color: var(--muted); text-align: center; }
   .notice { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
@@ -519,11 +521,12 @@ function renderMatches() {
 /* ---------- 순위 ---------- */
 function tableHtml(rows, zoneOf) {
   if (!rows.length) return `<div class="list"><div class="empty">순위를 불러오지 못했어요.</div></div>`;
-  return `<div class="list"><table>
-    <thead><tr><th>#</th><th style="text-align:left">팀</th><th>경기</th><th class="wdl">승</th><th class="wdl">무</th><th class="wdl">패</th><th>득실</th><th>승점</th></tr></thead>
+  return `<div class="list table-scroll"><table>
+    <thead><tr><th class="rank">#</th><th class="tname">팀</th><th>경기</th><th>승</th><th>무</th><th>패</th><th class="gsep">득점</th><th>실점</th><th>득실</th><th>승점</th></tr></thead>
     <tbody>${rows.map((r) => `<tr class="${r.me ? "me" : ""} ${zoneOf ? "z-" + zoneOf(r.rank) : ""}">
-      <td class="rank">${r.rank}</td><td class="tname"><div>${img(r.logo)}<span>${esc(r.team)}</span></div></td>
-      <td>${esc(r.p)}</td><td class="wdl">${esc(r.w)}</td><td class="wdl">${esc(r.d)}</td><td class="wdl">${esc(r.l)}</td><td>${esc(r.gd)}</td><td class="pts">${esc(r.pts)}</td>
+      <td class="rank">${r.rank}</td><td class="tname" title="${esc(r.team)}"><div>${img(r.logo)}<span>${esc(r.short || r.team)}</span></div></td>
+      <td>${esc(r.p)}</td><td>${esc(r.w)}</td><td>${esc(r.d)}</td><td>${esc(r.l)}</td>
+      <td class="gsep">${esc(r.gf ?? "")}</td><td>${esc(r.ga ?? "")}</td><td>${esc(r.gd)}</td><td class="pts">${esc(r.pts)}</td>
     </tr>`).join("")}</tbody></table></div>`;
 }
 function renderTables() {

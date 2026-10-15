@@ -58,7 +58,15 @@
   .hero .badge img { width: 38px; height: 38px; }
   .hero h1 { margin: 0; font-family: var(--title); font-weight: 400; font-size: 27px; letter-spacing: .01em; line-height: 1.1; }
   .ynwa { font-family: var(--display); letter-spacing: .18em; font-size: 14px; color: var(--yellow); margin-top: 3px; }
-  .hero .updated { font-size: 12.5px; opacity: .82; margin-top: 12px; }
+  .hero .updated { font-size: 12.5px; opacity: .82; margin-top: 6px; }
+  /* 홈이 아닌 탭에서는 헤더를 얇게 줄여 내용이 바로 보이게 한다 */
+  .hero.compact { padding: calc(10px + env(safe-area-inset-top)) 0 12px; }
+  .hero.compact .badge { width: 36px; height: 36px; box-shadow: 0 0 0 2px rgba(246, 235, 97, .9); }
+  .hero.compact .badge img { width: 26px; height: 26px; }
+  .hero.compact h1 { font-size: 21px; }
+  .hero.compact .ynwa { display: none; }
+  .hero.compact .updated { margin-top: 0; font-size: 12px; }
+  .hero.compact .brand { gap: 10px; }
 
   /* ---------- 다음 경기 카드 (헤더 위로 겹쳐 올라옴) ---------- */
   .matchday {
@@ -93,6 +101,7 @@
   .big small { font-family: var(--title); font-size: 16px; margin-left: 2px; }
   .sub { color: var(--muted); font-size: 13px; }
   .form { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .form .sub { white-space: nowrap; }
   .form .dots { display: flex; gap: 6px; }
   .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 800; color: #fff; }
   .dot.W { background: var(--good); } .dot.D { background: #8c8486; } .dot.L { background: var(--red); }
@@ -129,20 +138,31 @@
   .cups .comp + .comp { border-top: 1px solid var(--line); }
   .cups .steps { margin-top: 10px; }
 
-  /* ---------- 탭 ---------- */
-  nav.tabs {
-    position: sticky; top: 0; z-index: 5; margin: 18px -16px 0; padding: 0 16px;
-    display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
-    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--line);
+  /* ---------- 하단 메뉴 바 (앱처럼 항상 화면 아래에 떠 있음) ---------- */
+  #app { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .bottom-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; justify-content: center;
+    padding: 2px 4px env(safe-area-inset-bottom); border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   }
-  nav.tabs::-webkit-scrollbar { display: none; }
-  nav.tabs button {
-    flex: none; border: 0; background: none; color: var(--muted); padding: 13px 10px 11px; font: inherit;
-    font-size: 15px; font-weight: 700; cursor: pointer; border-bottom: 3px solid transparent;
+  .bottom-nav .inner { display: flex; width: 100%; max-width: 760px; }
+  .bottom-nav button {
+    flex: 1; position: relative; border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit;
+    font-size: 11px; font-weight: 700; padding: 8px 0 7px; display: flex; flex-direction: column; align-items: center; gap: 3px;
   }
-  nav.tabs button[aria-selected="true"] { color: var(--red-ink); border-bottom-color: var(--red); }
+  .bottom-nav svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .bottom-nav button[aria-selected="true"] { color: var(--red-ink); }
+  .bottom-nav button[aria-selected="true"]::before {
+    content: ""; position: absolute; top: -3px; width: 30px; height: 3px; border-radius: 0 0 3px 3px; background: var(--red);
+  }
+  .h2row { display: flex; align-items: center; justify-content: space-between; }
+  .h2row button { border: 0; background: none; color: var(--red-ink); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 22px 0 8px; }
+  .inj-mini { display: flex; align-items: center; gap: 12px; cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; }
+  .inj-mini .count { flex: none; white-space: nowrap; font-family: var(--display); font-size: 40px; line-height: 1; color: var(--red-ink); }
+  .inj-mini .names { font-size: 13.5px; line-height: 1.55; }
+  .inj-mini .names span { white-space: nowrap; }
   section.panel { display: none; padding-top: 14px; }
+  #panel-home { padding-top: 0; }
   section.panel.active { display: block; }
   h2 { font-family: var(--title); font-weight: 400; font-size: 18px; margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; }
   h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--red); }
@@ -265,30 +285,21 @@
 </form>
 
 <div id="app" hidden>
-  <header class="hero">
+  <header class="hero" id="hero">
     <div class="wrap">
       <div class="brand">
         <div class="badge"><img src="https://a.espncdn.com/i/teamlogos/soccer/500/364.png" alt=""></div>
         <div>
-          <h1>리버풀 소식</h1>
+          <h1 id="page-title">리버풀 소식</h1>
           <div class="ynwa">YOU'LL NEVER WALK ALONE</div>
+          <div class="updated" id="updated"></div>
         </div>
       </div>
-      <div class="updated" id="updated"></div>
     </div>
   </header>
 
   <div class="wrap">
-    <div id="summary"></div>
-
-    <nav class="tabs" role="tablist" id="tabs">
-      <button role="tab" data-tab="news">뉴스</button>
-      <button role="tab" data-tab="injuries">부상·결장</button>
-      <button role="tab" data-tab="matches">일정·결과</button>
-      <button role="tab" data-tab="tables">순위</button>
-      <button role="tab" data-tab="comps">대회 현황</button>
-    </nav>
-
+    <section class="panel" id="panel-home"></section>
     <section class="panel" id="panel-news"></section>
     <section class="panel" id="panel-injuries"></section>
     <section class="panel" id="panel-matches"></section>
@@ -300,6 +311,21 @@
       <button class="forget" id="forget" hidden>이 기기에서 접속 코드 지우기</button>
     </footer>
   </div>
+
+  <nav class="bottom-nav" role="tablist" id="tabs"><div class="inner">
+    <button role="tab" data-tab="home" data-title="리버풀 소식">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>홈</button>
+    <button role="tab" data-tab="news" data-title="뉴스">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>뉴스</button>
+    <button role="tab" data-tab="injuries" data-title="부상·결장">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>부상</button>
+    <button role="tab" data-tab="matches" data-title="일정·결과">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>일정</button>
+    <button role="tab" data-tab="tables" data-title="순위">
+      <svg viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/></svg>순위</button>
+    <button role="tab" data-tab="comps" data-title="대회 현황">
+      <svg viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M10 17h4v4h-4z"/></svg>대회</button>
+  </div></nav>
 </div>
 
 <script>
@@ -365,7 +391,7 @@ function renderSummary() {
   if (pl) html += `<div class="card stat"><div class="label">프리미어리그</div><div class="big">${pl.rank}<small>위</small></div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div></div>`;
   if (ucl) html += `<div class="card stat ucl"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}<small>위</small></div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div></div>`;
   if (form.length) {
-    html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">왼쪽이 오래된 경기</div></div>
+    html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">오른쪽이 최근</div></div>
       <div class="dots">${form.map((m) => `<span class="dot ${m.result}" title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
   }
   const cups = DATA.competitions.filter((c) => c.steps && c.alive);
@@ -373,8 +399,32 @@ function renderSummary() {
     html += `<div class="card cups"><div class="head label">참가 중인 컵대회</div>${cups.map((c) => compHtml(c, true)).join("")}</div>`;
   }
   html += `</div>`;
-  document.getElementById("summary").innerHTML = html;
+
+  // 다른 탭 미리보기: 최신 뉴스 5개 + 부상·결장 요약
+  const latest = DATA.news.slice(0, 5);
+  if (latest.length) {
+    html += `<div class="h2row"><h2>최신 뉴스</h2><button data-goto="news">전체 보기 ›</button></div>
+      <div class="list">${latest.map((n) => newsItemHtml(n, true)).join("")}</div>`;
+  }
+  if (DATA.injuries && DATA.injuries.length) {
+    const short = (p) => p.status === "d" && p.chance != null ? `${p.chance}%` : p.status === "s" ? "정지" : "";
+    html += `<div class="h2row"><h2>부상·결장</h2><button data-goto="injuries">자세히 ›</button></div>
+      <button class="card inj-mini" data-goto="injuries"><div class="count">${DATA.injuries.length}<small style="font-family:var(--title);font-size:15px">명</small></div>
+      <div class="names">${DATA.injuries.map((p) => `<span>${esc(p.name)}${short(p) ? ` <b>(${short(p)})</b>` : ""}</span>`).join(" · ")}</div></button>`;
+  }
+
+  const el = document.getElementById("panel-home");
+  el.innerHTML = html;
+  el.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => goTab(b.dataset.goto)));
   document.getElementById("updated").textContent = `${fmtDate(DATA.generated)} 업데이트 · ${ago(DATA.generated)}`;
+}
+
+function newsItemHtml(n, withTag) {
+  return `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">
+    <div class="ko">${esc(n.title_ko || n.title)}</div>
+    ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : ""}
+    <div class="meta">${withTag ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.source)}</span><span>${ago(n.published)}</span></div>
+  </a>`;
 }
 
 /* ---------- 뉴스 ---------- */
@@ -389,13 +439,7 @@ function renderNews() {
   let html = `<div class="chips">${groups.map((g) => `<button data-group="${esc(g)}" aria-pressed="${g === newsGroup}">${esc(g)}</button>`).join("")}</div>`;
   html += `<div class="list">`;
   if (!shown.length) html += `<div class="empty">표시할 기사가 없어요.</div>`;
-  for (const n of shown) {
-    html += `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">
-      <div class="ko">${esc(n.title_ko || n.title)}</div>
-      ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : ""}
-      <div class="meta">${newsGroup === "전체" ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.source)}</span><span>${ago(n.published)}</span></div>
-    </a>`;
-  }
+  html += shown.map((n) => newsItemHtml(n, newsGroup === "전체")).join("");
   if (items.length > newsLimit) html += `<button class="more" id="more">더 보기 (${items.length - newsLimit}건 남음)</button>`;
   html += `</div>`;
   if (DATA.news_errors.length) html += `<div class="notice err">이번에 불러오지 못한 곳: ${DATA.news_errors.map(esc).join(", ")}</div>`;
@@ -503,23 +547,27 @@ function renderComps() {
 
 /* ---------- 탭 ---------- */
 function showTab(name) {
-  document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+  let title = "리버풀 소식";
+  document.querySelectorAll("#tabs button").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.tab === name));
+    if (b.dataset.tab === name) title = b.dataset.title;
+  });
   document.querySelectorAll("section.panel").forEach((s) => s.classList.toggle("active", s.id === "panel-" + name));
-  store.set("tab", name);
+  document.getElementById("hero").classList.toggle("compact", name !== "home");
+  document.getElementById("page-title").textContent = title;
 }
-document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => {
-  showTab(b.dataset.tab);
-  const navTop = document.getElementById("tabs").offsetTop;
-  if (window.scrollY > navTop) window.scrollTo(0, navTop);
-}));
+function goTab(name) {
+  showTab(name);
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => goTab(b.dataset.tab)));
 
 function start(data) {
   DATA = data;
   document.getElementById("lock").hidden = true;
   document.getElementById("app").hidden = false;
   renderSummary(); renderNews(); renderInjuries(); renderMatches(); renderTables(); renderComps();
-  const savedTab = store.get("tab");
-  showTab(document.getElementById("panel-" + savedTab) ? savedTab : "news");
+  showTab("home");  // 열 때는 항상 홈에서 시작
 }
 
 /* ---------- 접속 코드 (build.py 의 encrypt 와 같은 방식으로 푼다) ---------- */

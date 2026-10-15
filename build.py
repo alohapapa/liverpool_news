@@ -375,6 +375,7 @@ def parse_event(event, comp):
             return s.get("displayValue")
         return s
 
+    notes = [n.get("headline") for n in c.get("notes", []) if n.get("headline")]
     lfc = home if home["team"]["id"] == ESPN_TEAM_ID else away
     opp = away if lfc is home else home
     result = None
@@ -400,6 +401,9 @@ def parse_event(event, comp):
         "detail": status.get("shortDetail"),
         "result": result,
         "venue": (c.get("venue") or {}).get("fullName"),
+        "round": round_key((event.get("seasonType") or {}).get("name")),
+        "leg": (c.get("leg") or {}).get("value"),
+        "note": notes[0] if notes else None,  # 예: "2nd Leg - Liverpool advance 4-1 on aggregate"
     }
 
 
@@ -450,43 +454,161 @@ def ucl_zone(rank):
     return "탈락권"
 
 
+# ESPN 라운드 이름 → 짧은 키. "quarterfinal"·"semifinal" 안에 "final"이 들어 있어서 순서가 중요하다.
+ROUND_PATTERNS = [
+    ("league phase", "LP"), ("playoff", "PO"), ("round of 16", "R16"), ("quarterfinal", "QF"),
+    ("semifinal", "SF"), ("final", "F"), ("first round", "R1"), ("second round", "R2"),
+    ("third round", "R3"), ("fourth round", "R4"), ("fifth round", "R5"),
+]
+ROUND_KO = {
+    "LP": "리그 페이즈", "PO": "플레이오프", "R16": "16강", "QF": "8강", "SF": "4강", "F": "결승",
+    "R1": "1라운드", "R2": "2라운드", "R3": "3라운드", "R4": "4라운드", "R5": "5라운드",
+}
+ROUND_SHORT = {"LP": "리그", "PO": "PO", "R16": "16강", "QF": "8강", "SF": "4강", "F": "결승",
+               "R1": "1R", "R2": "2R", "R3": "3R", "R4": "4R", "R5": "5R"}
+# 대회별 단계 (리버풀이 처음 참가하는 라운드 이전 단계는 실제 경기 기록을 보고 잘라낸다)
+LADDERS = {
+    "uefa.champions": ["LP", "PO", "R16", "QF", "SF", "F"],
+    "eng.league_cup": ["R1", "R2", "R3", "R4", "QF", "SF", "F"],
+    "eng.fa": ["R3", "R4", "R5", "QF", "SF", "F"],
+}
+DEFAULT_ENTRY = {"eng.league_cup": "R3", "eng.fa": "R3"}
+UCL_LEAGUE_GAMES = 8
+
+
+def round_key(name):
+    low = (name or "").lower()
+    for pattern, key in ROUND_PATTERNS:
+        if pattern in low:
+            return key
+    return None
+
+
+def tie_outcome(m):
+    """끝난 컵 경기 하나로 그 라운드를 통과했는지 판단한다: advanced / out / pending."""
+    agg = re.search(r"(?:^|- )(.+?) advances?\b", m.get("note") or "")
+    if agg:
+        return "advanced" if "liverpool" in agg.group(1).lower() else "out"
+    if m.get("leg") == 1:
+        return "pending"  # 1차전만 끝남
+    return {"W": "advanced", "L": "out"}.get(m["result"], "pending")
+
+
+def next_info(m):
+    lfc_home = m["home"] == TEAM_KO["Liverpool"]
+    return {
+        "opp": m["away"] if lfc_home else m["home"],
+        "opp_logo": m["away_logo"] if lfc_home else m["home_logo"],
+        "home": lfc_home,
+        "date": m["date"],
+        "round": ROUND_KO.get(m["round"], ""),
+        "leg": f"{m['leg']}차전" if m.get("leg") else "",
+    }
+
+
+def cup_progress(slug, ms, ucl_me):
+    """컵대회 진척도: 단계별 상태(done/current/out/won/skip/todo)와 요약 문구."""
+    ladder = LADDERS[slug]
+    upcoming = [m for m in ms if m["state"] != "post"]
+    done = [m for m in ms if m["state"] == "post"]
+    seen = {m["round"] for m in ms if m["round"]}
+    state, cur = "not_started", None
+
+    if upcoming:
+        state, cur = "alive", upcoming[0]["round"]
+    elif done:
+        last = done[-1]
+        cur = last["round"]
+        if cur == "LP":
+            # 리그 페이즈가 끝나면 순위로 다음 단계가 정해진다
+            if ucl_me and int(ucl_me["p"] or 0) >= UCL_LEAGUE_GAMES:
+                if ucl_me["rank"] <= 8:
+                    state, cur = "waiting", "R16"
+                elif ucl_me["rank"] <= 24:
+                    state, cur = "waiting", "PO"
+                else:
+                    state = "out"
+            else:
+                state = "alive"
+        else:
+            outcome = tie_outcome(last)
+            if outcome == "out":
+                state = "out"
+            elif outcome == "advanced" and cur == "F":
+                state = "won"
+            elif outcome == "advanced" and cur in ladder:
+                state, cur = "waiting", ladder[min(ladder.index(cur) + 1, len(ladder) - 1)]
+            else:
+                state = "alive"
+
+    entry_candidates = [ladder.index(k) for k in seen if k in ladder]
+    default_entry = DEFAULT_ENTRY.get(slug)
+    if not entry_candidates and default_entry:
+        entry_candidates = [ladder.index(default_entry)]
+    keys = ladder[min(entry_candidates):] if entry_candidates else ladder
+    cur_idx = keys.index(cur) if cur in keys else -1
+
+    steps = []
+    for i, k in enumerate(keys):
+        if state == "not_started" or i > cur_idx:
+            s = "todo"
+        elif i < cur_idx:
+            s = "skip" if (k == "PO" and k not in seen) else "done"
+        else:
+            s = {"out": "out", "won": "won"}.get(state, "current")
+        steps.append({"label": ROUND_SHORT[k], "state": s})
+
+    cur_ko = ROUND_KO.get(cur, "")
+    if state == "won":
+        status, tone = "우승!", "good"
+    elif state == "out":
+        status, tone = (f"{cur_ko}에서 탈락" if cur_ko else "탈락"), "bad"
+    elif state == "waiting":
+        status, tone = f"{cur_ko} 진출 · 대진 추첨 대기", "good"
+    elif state == "alive":
+        status, tone = f"{cur_ko} 진행 중", "good"
+    else:
+        status, tone = "아직 시작 전", "neutral"
+    return {
+        "state": state,
+        "status": status,
+        "tone": tone,
+        "steps": steps,
+        "next": next_info(upcoming[0]) if upcoming else None,
+        "alive": state in ("alive", "waiting"),
+    }
+
+
 def competition_status(matches, standings):
     out = []
     for comp in COMPETITIONS:
         ms = [m for m in matches if m["comp_slug"] == comp["slug"]]
-        upcoming = [m for m in ms if m["state"] != "post"]
         done = [m for m in ms if m["state"] == "post"]
-        nxt = upcoming[0] if upcoming else None
-        item = {"name": comp["ko"], "status": "", "detail": "", "next": nxt, "tone": "neutral"}
+        upcoming = [m for m in ms if m["state"] != "post"]
+        item = {"name": comp["ko"], "status": "", "detail": "", "tone": "neutral",
+                "steps": None, "next": next_info(upcoming[0]) if upcoming else None, "alive": True}
         if comp["kind"] == "league":
             me = next((r for r in standings.get("pl", []) if r["me"]), None)
             if me:
                 item["status"] = f"{me['rank']}위"
                 item["detail"] = f"{me['p']}경기 {me['w']}승 {me['d']}무 {me['l']}패 · 승점 {me['pts']}"
                 item["tone"] = "good" if me["rank"] <= 4 else "neutral"
-        elif comp["kind"] == "ucl":
-            me = next((r for r in standings.get("ucl", []) if r["me"]), None)
-            if me:
-                item["status"] = f"리그 페이즈 {me['rank']}위 · {ucl_zone(me['rank'])}"
-                item["detail"] = f"{me['p']}경기 {me['w']}승 {me['d']}무 {me['l']}패 · 승점 {me['pts']}"
-                item["tone"] = {"16강 직행권": "good", "플레이오프권": "neutral", "탈락권": "bad"}[ucl_zone(me["rank"])]
-            elif done or upcoming:
-                item["status"] = "진행 중"
         else:
+            ucl_me = next((r for r in standings.get("ucl", []) if r["me"]), None)
+            item.update(cup_progress(comp["slug"], ms, ucl_me))
             last = done[-1] if done else None
-            if nxt:
-                item["status"] = "진행 중"
-                item["tone"] = "good"
-            elif last and last["result"] == "L":
-                item["status"] = "탈락"
-                item["tone"] = "bad"
+            if comp["kind"] == "ucl" and ucl_me and item["state"] == "alive" and (last or {}).get("round", "LP") == "LP":
+                item["status"] = f"리그 페이즈 {ucl_me['rank']}위 · {ucl_zone(ucl_me['rank'])}"
+                item["tone"] = {"16강 직행권": "good", "플레이오프권": "neutral", "탈락권": "bad"}[ucl_zone(ucl_me["rank"])]
+                item["detail"] = f"{ucl_me['p']}경기 {ucl_me['w']}승 {ucl_me['d']}무 {ucl_me['l']}패 · 승점 {ucl_me['pts']}"
             elif last:
-                item["status"] = "다음 라운드 진출 (대진 대기)"
-                item["tone"] = "good"
-            else:
-                item["status"] = "아직 시작 전"
-            if last:
                 item["detail"] = f"최근: {last['home']} {last['home_score']}-{last['away_score']} {last['away']}"
+                if last.get("note") and "advance" in last["note"]:
+                    agg = re.search(r"(\d+-\d+) on aggregate", last["note"])
+                    if agg:
+                        item["detail"] += f" (합산 {agg.group(1)})"
+            elif item["state"] == "not_started" and comp["slug"] == "eng.fa":
+                item["detail"] = "프리미어리그 팀은 1월 3라운드부터 참가해요"
         out.append(item)
     return out
 

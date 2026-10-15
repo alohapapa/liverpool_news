@@ -97,6 +97,38 @@
   .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 800; color: #fff; }
   .dot.W { background: var(--good); } .dot.D { background: #8c8486; } .dot.L { background: var(--red); }
 
+  /* ---------- 컵대회 진척도 ---------- */
+  .comp { padding: 14px 16px; border-top: 1px solid var(--line); }
+  .comp:first-child { border-top: 0; }
+  .comp .top { display: flex; align-items: center; gap: 10px; }
+  .comp .top b { flex: 1; font-size: 15.5px; }
+  .steps { display: flex; margin: 14px 0 2px; }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+  .step::before { content: ""; position: absolute; top: 8px; right: 50%; width: 100%; height: 3px; background: var(--line); z-index: 0; }
+  .step:first-child::before { display: none; }
+  .step i {
+    position: relative; z-index: 1; width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--card); border: 3px solid var(--line); font-style: normal; font-size: 10px; color: #fff;
+  }
+  .step.done::before, .step.current::before, .step.won::before, .step.out::before, .step.skip::before { background: var(--red); }
+  .step.done i { background: var(--red); border-color: var(--red); }
+  .step.done, .step.current, .step.won { color: var(--text); }
+  .step.current i { background: var(--yellow); border-color: var(--red); box-shadow: 0 0 0 4px var(--red-soft); }
+  .step.current { color: var(--red-ink); }
+  .step.won i { background: var(--yellow); border-color: var(--yellow); color: #1c1516; width: 24px; height: 24px; margin-top: -3px; }
+  .step.out i { background: #8c8486; border-color: #8c8486; }
+  .step.out { color: var(--muted); text-decoration: line-through; }
+  .step.skip i { width: 9px; height: 9px; margin: 5px 0; border: 0; background: var(--red); opacity: .45; }
+  .opp { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .opp img { width: 18px; height: 18px; object-fit: contain; }
+  .opp b { color: var(--text); }
+  .opp .when { flex-basis: 100%; margin-top: -3px; }
+  .cups { grid-column: 1 / -1; padding: 0; overflow: hidden; }
+  .cups .head { padding: 12px 15px 0; }
+  .cups .comp { padding: 10px 15px 12px; border-top: 0; }
+  .cups .comp + .comp { border-top: 1px solid var(--line); }
+  .cups .steps { margin-top: 10px; }
+
   /* ---------- 탭 ---------- */
   nav.tabs {
     position: sticky; top: 0; z-index: 5; margin: 18px -16px 0; padding: 0 16px;
@@ -336,6 +368,10 @@ function renderSummary() {
     html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">왼쪽이 오래된 경기</div></div>
       <div class="dots">${form.map((m) => `<span class="dot ${m.result}" title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
   }
+  const cups = DATA.competitions.filter((c) => c.steps && c.alive);
+  if (cups.length) {
+    html += `<div class="card cups"><div class="head label">참가 중인 컵대회</div>${cups.map((c) => compHtml(c, true)).join("")}</div>`;
+  }
   html += `</div>`;
   document.getElementById("summary").innerHTML = html;
   document.getElementById("updated").textContent = `${fmtDate(DATA.generated)} 업데이트 · ${ago(DATA.generated)}`;
@@ -439,17 +475,28 @@ function renderTables() {
 }
 
 /* ---------- 대회 현황 ---------- */
+function stepsHtml(steps) {
+  const mark = { done: "", current: "", won: "🏆", out: "✕", skip: "", todo: "" };
+  return `<div class="steps">${steps.map((s) => `<div class="step ${s.state}"><i>${mark[s.state]}</i>${esc(s.label)}</div>`).join("")}</div>`;
+}
+function oppHtml(n) {
+  if (!n) return "";
+  const where = n.home ? "홈" : "원정";
+  const round = [n.round, n.leg].filter(Boolean).join(" ");
+  return `<div class="opp"><span>다음 상대</span>${img(n.opp_logo)}<b>${esc(n.opp)}</b><span>(${where})</span>
+    <span class="when">${round ? esc(round) + " · " : ""}${fmtDate(n.date)}</span></div>`;
+}
+function compHtml(c, compact) {
+  return `<div class="comp">
+    <div class="top"><b>${esc(c.name)}</b>${c.status ? `<span class="pill tone-${c.tone}">${esc(c.status)}</span>` : ""}</div>
+    ${!compact && c.detail ? `<div class="sub">${esc(c.detail)}</div>` : ""}
+    ${c.steps ? stepsHtml(c.steps) : ""}
+    ${oppHtml(c.next)}
+  </div>`;
+}
 function renderComps() {
   const el = document.getElementById("panel-comps");
-  let html = `<div class="list">`;
-  for (const c of DATA.competitions) {
-    html += `<div class="row"><div class="grow">
-      <div><b>${esc(c.name)}</b></div>
-      ${c.detail ? `<div class="sub">${esc(c.detail)}</div>` : ""}
-      ${c.next ? `<div class="sub">다음: ${esc(c.next.home)} vs ${esc(c.next.away)} · ${fmtDate(c.next.date)}</div>` : ""}
-    </div>${c.status ? `<span class="pill tone-${c.tone}">${esc(c.status)}</span>` : ""}</div>`;
-  }
-  html += `</div>`;
+  let html = `<div class="list">${DATA.competitions.map((c) => compHtml(c, false)).join("")}</div>`;
   if (DATA.errors.length) html += `<div class="notice err">이번에 불러오지 못한 정보: ${DATA.errors.map(esc).join(", ")}</div>`;
   el.innerHTML = html;
 }

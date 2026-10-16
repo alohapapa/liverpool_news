@@ -832,7 +832,58 @@ def encrypt(text, code):
     return {"locked": True, "salt": b64(salt), "iv": b64(iv), "iter": PBKDF2_ITERATIONS, "data": b64(sealed)}
 
 
+LAST_DATA_FILE = ROOT / "cache" / "last_data.json"  # 직전 전체 업데이트 결과 (카페만 새로 고칠 때 재사용)
+FULL_EVERY = dt.timedelta(minutes=50)  # 10분마다 실행되므로, 마지막 전체 업데이트가 이만큼 지났으면 다시 전체 업데이트
+
+
+def write_page(data):
+    """데이터를 (접속 코드로 잠가서) site/index.html 로 쓴다."""
+    payload = json.dumps(data, ensure_ascii=False)
+    code = os.environ.get("SITE_CODE", "").strip()
+    if code:
+        payload = json.dumps(encrypt(payload, code))
+        log("접속 코드로 잠갔습니다.")
+    else:
+        log("SITE_CODE가 없어 잠그지 않았습니다 (내 PC 미리보기용).")
+    payload = payload.replace("</", "<\\/")
+    page = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", payload)
+    SITE_DIR.mkdir(exist_ok=True)
+    (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
+    (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    LAST_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LAST_DATA_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def load_last_data():
+    if not LAST_DATA_FILE.exists():
+        return None
+    try:
+        return json.loads(LAST_DATA_FILE.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+
+
 def main():
+    # 10분마다 실행된다. 직전 전체 업데이트가 최근이면 카페 글만 새로 가져와서 다시 만든다.
+    # (레딧·무료 번역은 자주 요청하면 막히므로 1시간에 한 번만)
+    last = load_last_data()
+    force_full = os.environ.get("FORCE_FULL", "").lower() == "true" or "--full" in sys.argv
+    if last and not force_full:
+        age = NOW - (parse_date(last.get("generated")) or NOW - FULL_EVERY)
+        if age < FULL_EVERY:
+            log(f"카페만 새로 고칩니다 (마지막 전체 업데이트 {int(age.total_seconds() // 60)}분 전).")
+            cafe, cafe_status = collect_cafe()
+            if cafe_status == "ok":
+                last["cafe"], last["cafe_status"], last["cafe_checked"] = cafe, cafe_status, NOW.isoformat()
+            elif last.get("cafe") is None:
+                last["cafe_status"] = cafe_status  # 실패했으면 직전 목록을 그대로 두고, 목록이 아예 없을 때만 상태를 알린다
+            write_page(last)
+            log(f"완료: 카페만 업데이트 ({cafe_status})")
+            return
+    full_update()
+
+
+def full_update():
     translator = Translator()
     errors = []
     # 이적 루머를 먼저 모은다: 레딧 기자 보도가 이번 실행의 첫 레딧 요청이 되고,
@@ -859,24 +910,14 @@ def main():
         "transfer_errors": transfer_errors,
         "cafe": cafe,
         "cafe_status": cafe_status,
+        "cafe_checked": NOW.isoformat(),
         "injuries": injuries,
         "matches": matches,
         "standings": standings,
         "competitions": competition_status(matches, standings),
         "errors": errors,
     }
-    payload = json.dumps(data, ensure_ascii=False)
-    code = os.environ.get("SITE_CODE", "").strip()
-    if code:
-        payload = json.dumps(encrypt(payload, code))
-        log("접속 코드로 잠갔습니다.")
-    else:
-        log("SITE_CODE가 없어 잠그지 않았습니다 (내 PC 미리보기용).")
-    payload = payload.replace("</", "<\\/")
-    page = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", payload)
-    SITE_DIR.mkdir(exist_ok=True)
-    (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
-    (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    write_page(data)
     journalist = sum(1 for t in transfers if t["group"] == "기자 보도")
     log(f"완료: 뉴스 {len(news)}건, 이적 {len(transfers)}건 (기자 보도 {journalist}건), "
         f"번역 못 한 제목 {translator.skipped}개, 실패한 출처 {news_errors + transfer_errors + errors or '없음'}")

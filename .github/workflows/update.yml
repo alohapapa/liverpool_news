@@ -2,7 +2,9 @@ name: 리버풀 소식 업데이트
 
 on:
   schedule:
-    - cron: "7 * * * *"  # 매시 7분 (GitHub 사정에 따라 몇 분~수십 분 늦어질 수 있음)
+    # 10분마다 실행. 전체 업데이트는 1시간에 한 번, 나머지는 카페 글만 새로 가져온다 (build.py 의 main 참고)
+    # GitHub 사정에 따라 몇 분씩 늦어질 수 있음
+    - cron: "*/10 * * * *"
   workflow_dispatch:      # Actions 화면에서 "Run workflow" 버튼으로 바로 실행
   push:
     branches: [main]
@@ -40,6 +42,7 @@ jobs:
           SITE_CODE: ${{ secrets.SITE_CODE }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}          # 없으면 카페 글만 건너뜀
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          FORCE_FULL: ${{ github.event_name != 'schedule' }}       # 코드를 올렸거나 직접 실행하면 항상 전체 업데이트
         run: |
           # 접속 코드가 없으면 잠기지 않은 사이트가 올라가므로 여기서 멈춘다
           if [ -z "$SITE_CODE" ]; then

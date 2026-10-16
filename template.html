@@ -343,9 +343,11 @@
       <div class="seg">
         <button data-sub="news">뉴스</button>
         <button data-sub="transfer">이적 루머</button>
+        <button data-sub="cafe">카페</button>
       </div>
       <div class="subpanel" id="sub-news"></div>
       <div class="subpanel" id="sub-transfer"></div>
+      <div class="subpanel" id="sub-cafe"></div>
     </section>
     <section class="panel" id="panel-injuries"></section>
     <section class="panel" id="panel-matches"></section>
@@ -456,7 +458,7 @@ function renderSummary() {
 function newsItemHtml(n, withTag) {
   return `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">
     <div class="ko">${esc(n.title_ko || n.title)}</div>
-    ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : ""}
+    ${n.title_ko ? `<div class="orig">${esc(n.title)}</div>` : n.snippet ? `<div class="orig">${esc(n.snippet)}</div>` : ""}
     <div class="meta">${n.journalist ? `<span class="tag journo">✍ ${esc(n.journalist)}</span>` : ""}${withTag ? `<span class="tag ${n.group === "레딧" ? "reddit" : ""}">${esc(n.group)}</span>` : ""}<span>${esc(n.journalist ? "r/LiverpoolFC" : n.source)}</span><span>${ago(n.published)}</span></div>
   </a>`;
 }
@@ -472,10 +474,18 @@ const FEEDS = {
     notice: "✍ 기자 보도: r/LiverpoolFC가 기자별 신뢰도 등급을 매겨 관리하는 글이에요. 언론 루머: 각국 언론의 이적 기사로, 근거가 약한 것도 섞여 있어요.",
   },
 };
+FEEDS.cafe = {
+  items: () => DATA.cafe || [], groups: () => ["뉴스", "기타"], errors: () => (DATA.cafe_status === "error" ? ["lfckorea"] : []),
+  defaultGroup: "뉴스",
+  empty: () => DATA.cafe_status === "no_key"
+    ? "네이버 API 키를 등록하면 여기에 lfckorea 글이 나와요."
+    : "표시할 글이 없어요.",
+  notice: "lfckorea에서 네이버 검색에 노출된 글이에요. '뉴스'는 [출처]로 시작하거나 인용문인 제목만 골라낸 거라 가끔 틀릴 수 있어요. 시간은 이 사이트가 처음 확인한 시각이에요.",
+};
 const feedState = {};
 function renderFeed(name) {
   const feed = FEEDS[name];
-  const st = feedState[name] || (feedState[name] = { group: store.get("group-" + name) || "전체", limit: 40 });
+  const st = feedState[name] || (feedState[name] = { group: store.get("group-" + name) || feed.defaultGroup || "전체", limit: 40 });
   const el = document.getElementById("sub-" + name);
   const groups = ["전체", ...feed.groups()];
   if (!groups.includes(st.group)) st.group = "전체";
@@ -483,7 +493,7 @@ function renderFeed(name) {
   const shown = items.slice(0, st.limit);
   let html = `<div class="chips">${groups.map((g) => `<button data-group="${esc(g)}" aria-pressed="${g === st.group}">${esc(g)}</button>`).join("")}</div>`;
   html += `<div class="list">`;
-  if (!shown.length) html += `<div class="empty">표시할 기사가 없어요.</div>`;
+  if (!shown.length) html += `<div class="empty">${feed.empty ? feed.empty() : "표시할 기사가 없어요."}</div>`;
   html += shown.map((n) => newsItemHtml(n, st.group === "전체")).join("");
   if (items.length > st.limit) html += `<button class="more">더 보기 (${items.length - st.limit}건 남음)</button>`;
   html += `</div>`;
@@ -496,7 +506,7 @@ function renderFeed(name) {
   const more = el.querySelector(".more");
   if (more) more.addEventListener("click", () => { st.limit += 40; renderFeed(name); });
 }
-function renderNews() { renderFeed("news"); renderFeed("transfer"); }
+function renderNews() { renderFeed("news"); renderFeed("transfer"); renderFeed("cafe"); }
 
 /* ---------- 부상·결장 ---------- */
 function renderInjuries() {

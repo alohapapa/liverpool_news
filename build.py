@@ -24,6 +24,7 @@ ROOT = Path(__file__).parent
 SITE_DIR = ROOT / "site"
 TEMPLATE = ROOT / "template.html"
 CACHE_FILE = ROOT / "cache" / "translations.json"
+CAFE_SEEN_FILE = ROOT / "cache" / "cafe_seen.json"  # 카페 글을 처음 본 시각 (검색 API가 작성 시각을 주지 않아서)
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -367,6 +368,70 @@ def collect_items(sources, translator, kind):
         if s["group"] not in groups:
             groups.append(s["group"])
     return out, groups, errors
+
+
+# ---------------------------------------------------------------- 네이버 카페 (lfckorea, 네이버 API HUB 카페글 검색)
+
+CAFE_URL = "cafe.naver.com/lfckorea"
+CAFE_QUERY = "리버풀"  # 카페 이름에 '리버풀'이 들어 있어서 이 카페 글 대부분이 이 검색어로 잡힌다
+CAFE_API = "https://naverapihub.apigw.ntruss.com/search/v1/cafearticle"
+CAFE_KEEP = 300
+# 뉴스 게시판 글은 보통 "[파브리치오 로마노] ...", "[OptaJoe] ..." 처럼 [출처]로 시작하거나 인용문이다.
+# 검색 결과에는 게시판 이름이 없어서 제목 모양으로 뉴스 글을 가려낸다.
+CAFE_NEWS_RE = re.compile(r'^\s*\[[^\]]{1,40}\]|["“”]')
+CAFE_NOT_NEWS_TAG = re.compile(r"^\s*\[(잡담|질문|후기|공지|이벤트|직관|유머|나눔|구매|판매|가입|인사|짤|움짤|번역요청)\]")
+
+
+def collect_cafe():
+    """lfckorea 글 목록. 네이버 키가 없으면 (None, "no_key")."""
+    cid, secret = os.environ.get("NAVER_CLIENT_ID", "").strip(), os.environ.get("NAVER_CLIENT_SECRET", "").strip()
+    if not cid or not secret:
+        log("카페: NAVER_CLIENT_ID/SECRET 이 없어 건너뜁니다.")
+        return None, "no_key"
+    log("카페: lfckorea")
+    url = f"{CAFE_API}?query={urllib.parse.quote(CAFE_QUERY)}&display=100&start=1&sort=date&format=json"
+    req = urllib.request.Request(url, headers={
+        "X-NCP-APIGW-API-KEY-ID": cid, "X-NCP-APIGW-API-KEY": secret, "User-Agent": UA,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            items = json.loads(r.read().decode("utf-8")).get("items", [])
+    except Exception as e:
+        # 키 값이 기록에 남지 않도록 오류 종류만 남긴다
+        log(f"  불러오기 실패: {type(e).__name__} {getattr(e, 'code', '')}")
+        return None, "error"
+
+    seen = {}
+    if CAFE_SEEN_FILE.exists():
+        try:
+            seen = json.loads(CAFE_SEEN_FILE.read_text(encoding="utf-8"))
+        except ValueError:
+            seen = {}
+    out = []
+    for it in items:
+        link = it.get("link", "")
+        m = re.search(r"cafe\.naver\.com/lfckorea/(\d+)", link)
+        if CAFE_URL not in (it.get("cafeurl", "") + link) or not m:
+            continue
+        aid = m.group(1)
+        title = clean(it.get("title"))
+        seen.setdefault(aid, NOW.isoformat())
+        is_news = bool(CAFE_NEWS_RE.search(title)) and not CAFE_NOT_NEWS_TAG.search(title)
+        out.append({
+            "id": int(aid),
+            "title": title,
+            "snippet": clean(it.get("description"))[:120],
+            "link": f"https://cafe.naver.com/lfckorea/{aid}",
+            "source": "lfckorea",
+            "group": "뉴스" if is_news else "기타",
+            "published": seen[aid],  # 처음 확인한 시각
+        })
+    out.sort(key=lambda x: x["id"], reverse=True)
+    keep = dict(sorted(seen.items(), key=lambda kv: int(kv[0]), reverse=True)[:CAFE_KEEP])
+    CAFE_SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CAFE_SEEN_FILE.write_text(json.dumps(keep), encoding="utf-8")
+    log(f"  {len(out)}건 (뉴스로 보이는 글 {sum(1 for x in out if x['group'] == '뉴스')}건)")
+    return out, "ok"
 
 
 # ---------------------------------------------------------------- 부상자 (FPL 공식 데이터)
@@ -777,6 +842,7 @@ def main():
     injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
     matches = safe("경기 일정", collect_matches, [], errors)
     explain_suspensions(injuries, matches)
+    cafe, cafe_status = collect_cafe()
     standings = {
         "pl": safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors),
         "ucl": safe("챔피언스리그 순위", lambda: collect_standings("uefa.champions"), [], errors),
@@ -791,6 +857,8 @@ def main():
         "transfers": transfers,
         "transfer_groups": transfer_groups,
         "transfer_errors": transfer_errors,
+        "cafe": cafe,
+        "cafe_status": cafe_status,
         "injuries": injuries,
         "matches": matches,
         "standings": standings,

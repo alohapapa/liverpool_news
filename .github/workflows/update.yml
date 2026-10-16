@@ -38,6 +38,8 @@ jobs:
       - name: 소식 모으기
         env:
           SITE_CODE: ${{ secrets.SITE_CODE }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}          # 없으면 카페 글만 건너뜀
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: |
           # 접속 코드가 없으면 잠기지 않은 사이트가 올라가므로 여기서 멈춘다
           if [ -z "$SITE_CODE" ]; then

@@ -314,33 +314,38 @@
   /* 라인업 */
   /* 포메이션 그림: 경기장 전체 (위쪽 절반 홈 팀, 아래쪽 절반 원정 팀) */
   .pitch {
-    position: relative; aspect-ratio: 1 / 2; overflow: hidden;
+    position: relative; aspect-ratio: 1 / 2.4; overflow: hidden;
     background: repeating-linear-gradient(180deg, #2f8a4a 0 6.25%, #2a7f44 6.25% 12.5%);
   }
   .pitch::before { content: ""; position: absolute; inset: 8px; border: 2px solid rgba(255,255,255,.35); border-radius: 2px; }
-  .pitch .box { position: absolute; left: 24%; right: 24%; height: 8%; border: 2px solid rgba(255,255,255,.35); }
+  .pitch .box { position: absolute; left: 22%; right: 22%; height: 7%; border: 2px solid rgba(255,255,255,.35); }
   .pitch .box.top { top: 8px; border-top: 0; }
   .pitch .box.bottom { bottom: 8px; border-bottom: 0; }
   .pitch .half { position: absolute; left: 8px; right: 8px; top: 50%; border-top: 2px solid rgba(255,255,255,.35); }
   .pitch .circle { position: absolute; left: 50%; top: 50%; width: 28%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,.35); border-radius: 50%; }
   .pl { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; z-index: 1; }
   .pl .shirt {
-    position: relative; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
-    background: #1f2a44; color: #fff; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,.3);
+    position: relative; width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center;
+    background: #1f2a44; color: #fff; border: 2.5px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35);
   }
   .pl.lfc .shirt { background: var(--red); }
   .pl.gk .shirt { background: var(--yellow); color: #1c1516; }
   .pl.lfc.gk .shirt { background: var(--teal); color: #fff; }
-  .pl .shirt.has-photo { background: #ece6e4; }
-  .pl .shirt img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 8%; }
-  .pl .num { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  /* 사진은 배경이 투명한 상반신 사진이라, 크게 키워 머리·어깨만 동그라미 안에 보이게 자른다 */
+  .pl .face { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; }
+  .pl .shirt.has-photo { background: radial-gradient(circle at 50% 30%, #fff 0%, #e4dcda 100%); border-color: #1f2a44; }
+  .pl.lfc .shirt.has-photo { background: radial-gradient(circle at 50% 30%, #fff 0%, #f6d9de 100%); border-color: var(--red); }
+  .pl.gk .shirt.has-photo { border-color: var(--yellow); }
+  .pl.lfc.gk .shirt.has-photo { border-color: var(--teal); }
+  .pl .shirt img { position: absolute; left: -20%; top: 2%; width: 140%; height: auto; }
+  .pl .num { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
   /* 사진이 있으면 등번호는 왼쪽 아래 작은 딱지로 */
   .pl .has-photo .num {
-    position: absolute; left: -7px; bottom: -4px; min-width: 17px; height: 17px; padding: 0 3px; border-radius: 9px;
+    position: absolute; left: -5px; bottom: -3px; z-index: 1; min-width: 17px; height: 17px; padding: 0 3px; border-radius: 9px;
     display: grid; place-items: center; font-size: 10px; background: #1f2a44; color: #fff; border: 1.5px solid #fff;
   }
   .pl.lfc .has-photo .num { background: var(--red); }
-  .pl .badges { position: absolute; top: -6px; right: -12px; display: flex; gap: 1px; font-size: 11px; line-height: 1; }
+  .pl .badges { position: absolute; top: -4px; right: -10px; z-index: 1; display: flex; gap: 1px; font-size: 11px; line-height: 1; }
   .pl .badges .card-y, .pl .badges .card-r { width: 8px; height: 11px; }
   .pl .pn {
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -363,6 +368,8 @@
   .bn.unused .nm { font-weight: 400; }
   .lu-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 800; }
   .lu-head img { width: 22px; height: 22px; object-fit: contain; }
+  .lu-head .who { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+  .lu-head .who small { font-size: 12px; font-weight: 600; color: var(--muted); }
   .lu-head span { margin-left: auto; font-size: 13px; color: var(--muted); }
   .lu { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; padding: 7px 16px; border-top: 1px solid var(--line); font-size: 14px; }
   .lu-head + .lu { border-top: 0; }
@@ -780,20 +787,26 @@ function playerDot(p, x, y, width, cls) {
     kinds.includes("red") ? `<i class="card-r"></i>` : kinds.includes("yellow") ? `<i class="card-y"></i>` : "",
   ].join("");
   // 사진을 못 불러오면 사진만 지우고 등번호 동그라미로 보여준다
-  const photo = p.pc ? `<img src="${PHOTO(esc(p.pc))}" alt="" loading="lazy" onerror="this.parentNode.classList.remove('has-photo');this.remove()">` : "";
+  const photo = p.pc ? `<span class="face"><img src="${PHOTO(esc(p.pc))}" alt="" loading="lazy" onerror="this.closest('.shirt').classList.remove('has-photo');this.parentNode.remove()"></span>` : "";
   return `<div class="pl ${cls}" style="left:${x}%;top:${y}%;width:${width}%">
     <span class="shirt ${photo ? "has-photo" : ""}">${photo}<b class="num">${esc(p.no ?? "")}</b>${badges ? `<span class="badges">${badges}</span>` : ""}</span>
     <span class="pn">${esc(p.last || p.name)}</span>
     ${off ? `<span class="po">▼ ${esc(off.split("|")[1])}</span>` : ""}
   </div>`;
 }
+// 팀 이름 줄: 엠블럼 · 팀 · 감독 · 포메이션
+function teamBar(d, m, side) {
+  const l = d.lineups[side];
+  return `<div class="lu-head">${img(side === "home" ? m.home_logo : m.away_logo)}<div class="who">${esc(side === "home" ? m.home : m.away)}
+    ${l.coach ? `<small>감독 ${esc(l.coach)}</small>` : ""}</div><span>${esc(l.formation || "")}</span></div>`;
+}
 function pitchHtml(d, m) {
   const home = formationLines(d.lineups.home), away = formationLines(d.lineups.away);
   if (!home || !away) return "";
   const half = (lines, top, lfc) => lines.map((line, row) => {
-    // 골키퍼는 자기 골대 쪽 끝(4% / 96%), 마지막 공격 줄은 하프라인 가까이(44% / 56%)
-    const step = (row * 40) / (lines.length - 1);
-    const y = top ? 4 + step : 96 - step;
+    // 골키퍼는 자기 골대 쪽 끝(5.5% / 94.5%), 마지막 공격 줄은 하프라인 가까이(45% / 55%)
+    const step = (row * 39.5) / (lines.length - 1);
+    const y = top ? 5.5 + step : 94.5 - step;
     return line.map((p, k) => {
       let x = ((k + 1) * 100) / (line.length + 1);
       if (top) x = 100 - x;  // 위쪽 팀은 아래를 보고 서 있으므로 왼쪽·오른쪽이 뒤집힌다
@@ -801,7 +814,7 @@ function pitchHtml(d, m) {
       return playerDot(p, x, y, width, `${lfc ? "lfc" : ""} ${row === 0 ? "gk" : ""}`);
     }).join("");
   }).join("");
-  const bar = (side) => `<div class="lu-head">${img(side === "home" ? m.home_logo : m.away_logo)}${esc(side === "home" ? m.home : m.away)}<span>${esc(d.lineups[side].formation || "")}</span></div>`;
+  const bar = (side) => teamBar(d, m, side);
   return `${bar("home")}<div class="pitch"><div class="box top"></div><div class="box bottom"></div><div class="half"></div><div class="circle"></div>
     ${half(home, true, isLfc(m.home))}${half(away, false, isLfc(m.away))}</div>${bar("away")}`;
 }
@@ -816,7 +829,7 @@ function lineupHtml(d, m) {
     const team = (side) => {
       const l = d.lineups[side];
       return `<div class="list" style="margin-bottom:12px">
-        <div class="lu-head">${img(side === "home" ? m.home_logo : m.away_logo)}${esc(side === "home" ? m.home : m.away)}<span>${esc(l.formation || "")}</span></div>
+        ${teamBar(d, m, side)}
         ${l.starters.map((p) => player(p)).join("")}
         ${l.bench.length ? `<div class="lu-sub">교체 명단</div>${l.bench.map((p) => player(p, !p.on)).join("")}` : ""}
       </div>`;

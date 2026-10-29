@@ -656,7 +656,7 @@ def collect_standings(slug):
 DETAILS_FILE = ROOT / "cache" / "match_details.json"  # 끝난 경기 기록은 바뀌지 않으므로 다시 받지 않는다
 DETAILS_RECENT = 10               # 최근에 끝난 경기 몇 개까지 기록을 보여줄지 (진행 중인 경기는 항상)
 DETAILS_FINAL_AFTER = dt.timedelta(hours=4)  # 킥오프 후 이만큼 지난 뒤 받은 기록은 확정으로 보고 캐시에서 재사용
-DETAILS_VERSION = 3               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
+DETAILS_VERSION = 4               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
 
 # (ESPN 항목, 한국어 이름) — 화면에 이 순서로 보여준다
 STAT_KO = [
@@ -689,7 +689,7 @@ def event_kind(espn_type):
     return None
 
 
-def parse_details(summary, m, photos):
+def parse_details(summary, m, photos, coaches):
     home_id = next((c["team"]["id"] for c in summary["header"]["competitions"][0]["competitors"]
                     if c["homeAway"] == "home"), None)
 
@@ -757,7 +757,8 @@ def parse_details(summary, m, photos):
         bench.sort(key=lambda p: not p["on"])  # 교체로 들어온 선수를 먼저
         for p in starters + bench:
             del p["order"]
-        lineups[side] = {"formation": r.get("formation"), "starters": starters, "bench": bench}
+        lineups[side] = {"formation": r.get("formation"), "coach": coaches.find((r.get("team") or {}).get("displayName")),
+                         "starters": starters, "bench": bench}
 
     return {
         "id": m["id"],
@@ -812,6 +813,65 @@ class PlayerPhotos:
         return found[0]["code"] if found and len(found) == 1 else None
 
 
+COACH_FILE = ROOT / "cache" / "coaches.json"
+COACH_KEEP = dt.timedelta(days=3)  # 감독은 자주 바뀌지 않으므로 사흘에 한 번만 다시 찾는다
+WIKIDATA = "https://www.wikidata.org"
+
+
+class Coaches:
+    """팀 이름 → 현재 감독 이름 (위키데이터 '감독' 항목, 한국어 이름이 있으면 한국어).
+    ESPN·FPL 에는 현재 감독 정보가 없어서 위키데이터를 쓴다."""
+
+    def __init__(self):
+        try:
+            self.cache = json.loads(COACH_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.cache = {}
+
+    def find(self, team):
+        if not team:
+            return None
+        old = self.cache.get(team)
+        if old and NOW - (parse_date(old.get("checked")) or NOW - COACH_KEEP) < COACH_KEEP:
+            return old.get("name")
+        try:
+            name = self.lookup(team)
+        except Exception as e:
+            log(f"  감독 찾기 실패 ({team}): {e}")
+            return old.get("name") if old else None
+        self.cache[team] = {"name": name, "checked": NOW.isoformat()}
+        return name
+
+    def lookup(self, team):
+        query = urllib.parse.urlencode({"action": "wbsearchentities", "search": team, "language": "en",
+                                        "type": "item", "limit": 7, "format": "json"})
+        for hit in fetch_json(f"{WIKIDATA}/w/api.php?{query}").get("search", []):
+            desc = (hit.get("description") or "").lower()
+            if "women" in desc or not re.search(r"football club|association football|soccer", desc):
+                continue
+            claims = self.entity(hit["id"])["claims"].get("P286", [])  # P286 = 감독(head coach)
+            current = [c for c in claims if "P582" not in c.get("qualifiers", {}) and c.get("rank") != "deprecated"]
+            current = [c for c in current if c.get("rank") == "preferred"] or current
+            if not current:
+                return None
+
+            def started(c):
+                q = c.get("qualifiers", {}).get("P580") or [{}]
+                return ((q[0].get("datavalue") or {}).get("value") or {}).get("time", "")
+
+            coach_id = max(current, key=started)["mainsnak"]["datavalue"]["value"]["id"]
+            labels = self.entity(coach_id)["labels"]
+            return (labels.get("ko") or labels.get("en") or {}).get("value")
+        return None
+
+    def entity(self, qid):
+        return fetch_json(f"{WIKIDATA}/wiki/Special:EntityData/{qid}.json")["entities"][qid]
+
+    def save(self):
+        COACH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        COACH_FILE.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
+
+
 def collect_details(matches):
     """진행 중인 경기와 최근에 끝난 경기의 기록(골·카드·교체, 팀 기록, 라인업)."""
     try:
@@ -822,6 +882,7 @@ def collect_details(matches):
     done = [m for m in matches if m["state"] == "post"][-DETAILS_RECENT:]
     out, fetched = {}, 0
     photos = PlayerPhotos()  # 새로 받을 경기가 있을 때만 FPL 목록을 한 번 받는다
+    coaches = Coaches()
     for m in live + done:
         old = cached.get(m["id"])
         if old and old.get("final") and old.get("v") == DETAILS_VERSION and m["state"] == "post":
@@ -829,12 +890,13 @@ def collect_details(matches):
             continue
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"
         try:
-            out[m["id"]] = parse_details(fetch_json(url), m, photos)
+            out[m["id"]] = parse_details(fetch_json(url), m, photos, coaches)
             fetched += 1
         except Exception as e:
             log(f"  경기 기록 실패 ({m['home']} - {m['away']}): {e}")
             if old:
                 out[m["id"]] = old
+    coaches.save()
     DETAILS_FILE.parent.mkdir(parents=True, exist_ok=True)
     DETAILS_FILE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     log(f"경기 기록: {len(out)}경기 (새로 받음 {fetched})")

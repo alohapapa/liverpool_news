@@ -655,6 +655,7 @@ def collect_standings(slug):
 DETAILS_FILE = ROOT / "cache" / "match_details.json"  # 끝난 경기 기록은 바뀌지 않으므로 다시 받지 않는다
 DETAILS_RECENT = 10               # 최근에 끝난 경기 몇 개까지 기록을 보여줄지 (진행 중인 경기는 항상)
 DETAILS_FINAL_AFTER = dt.timedelta(hours=4)  # 킥오프 후 이만큼 지난 뒤 받은 기록은 확정으로 보고 캐시에서 재사용
+DETAILS_VERSION = 2               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
 
 # (ESPN 항목, 한국어 이름) — 화면에 이 순서로 보여준다
 STAT_KO = [
@@ -736,9 +737,11 @@ def parse_details(summary, m):
         side = r.get("homeAway")
         players = []
         for p in r.get("roster", []):
-            name = (p.get("athlete") or {}).get("displayName", "")
+            athlete = p.get("athlete") or {}
+            name = athlete.get("displayName", "")
             players.append({
                 "no": p.get("jersey"), "name": name,
+                "last": athlete.get("lastName") or name,  # 포메이션 그림에 쓰는 짧은 이름
                 "pos": (p.get("position") or {}).get("abbreviation"),
                 "start": bool(p.get("starter")), "on": bool(p.get("subbedIn")),
                 "order": p.get("formationPlace") or 99, "marks": marks.get(name, []),
@@ -752,6 +755,7 @@ def parse_details(summary, m):
 
     return {
         "id": m["id"],
+        "v": DETAILS_VERSION,
         "fetched": NOW.isoformat(),
         "final": m["state"] == "post" and NOW - parse_date(m["date"]) > DETAILS_FINAL_AFTER,
         "events": events,
@@ -771,7 +775,7 @@ def collect_details(matches):
     out, fetched = {}, 0
     for m in live + done:
         old = cached.get(m["id"])
-        if old and old.get("final") and m["state"] == "post":
+        if old and old.get("final") and old.get("v") == DETAILS_VERSION and m["state"] == "post":
             out[m["id"]] = old
             continue
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"

@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -655,7 +656,7 @@ def collect_standings(slug):
 DETAILS_FILE = ROOT / "cache" / "match_details.json"  # 끝난 경기 기록은 바뀌지 않으므로 다시 받지 않는다
 DETAILS_RECENT = 10               # 최근에 끝난 경기 몇 개까지 기록을 보여줄지 (진행 중인 경기는 항상)
 DETAILS_FINAL_AFTER = dt.timedelta(hours=4)  # 킥오프 후 이만큼 지난 뒤 받은 기록은 확정으로 보고 캐시에서 재사용
-DETAILS_VERSION = 2               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
+DETAILS_VERSION = 3               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
 
 # (ESPN 항목, 한국어 이름) — 화면에 이 순서로 보여준다
 STAT_KO = [
@@ -688,7 +689,7 @@ def event_kind(espn_type):
     return None
 
 
-def parse_details(summary, m):
+def parse_details(summary, m, photos):
     home_id = next((c["team"]["id"] for c in summary["header"]["competitions"][0]["competitors"]
                     if c["homeAway"] == "home"), None)
 
@@ -740,12 +741,17 @@ def parse_details(summary, m):
             athlete = p.get("athlete") or {}
             name = athlete.get("displayName", "")
             players.append({
+                "pc": photos.find(athlete.get("firstName"), athlete.get("lastName"), name),
                 "no": p.get("jersey"), "name": name,
                 "last": athlete.get("lastName") or name,  # 포메이션 그림에 쓰는 짧은 이름
                 "pos": (p.get("position") or {}).get("abbreviation"),
                 "start": bool(p.get("starter")), "on": bool(p.get("subbedIn")),
                 "order": p.get("formationPlace") or 99, "marks": marks.get(name, []),
             })
+        # 선발 중 사진을 찾은 선수가 절반도 안 되면 프리미어리그 팀이 아니므로(우연히 같은 이름일 뿐) 모두 버린다
+        if sum(1 for p in players if p["start"] and p["pc"]) < 6:
+            for p in players:
+                p["pc"] = None
         starters = sorted([p for p in players if p["start"]], key=lambda p: int(p["order"]))
         bench = [p for p in players if not p["start"]]
         bench.sort(key=lambda p: not p["on"])  # 교체로 들어온 선수를 먼저
@@ -764,6 +770,48 @@ def parse_details(summary, m):
     }
 
 
+def norm_name(text):
+    """'Jérémy Jacquet' → 'jeremyjacquet' (악센트·공백·기호를 빼고 비교)"""
+    text = unicodedata.normalize("NFKD", (text or "").replace("ı", "i").replace("ø", "o").replace("ß", "ss"))
+    return re.sub(r"[^a-z]", "", "".join(c for c in text if not unicodedata.combining(c)).lower())
+
+
+class PlayerPhotos:
+    """ESPN 선수 이름 → 프리미어리그 공식 선수 사진 번호(FPL code).
+    프리미어리그 팀 선수만 있다. 못 찾으면 None (화면에서는 등번호 동그라미로 보여준다)."""
+
+    URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
+
+    def __init__(self):
+        self.players = None
+
+    def load(self):
+        if self.players is None:
+            try:
+                self.players = fetch_json(self.URL)["elements"]
+            except Exception as e:
+                log(f"  선수 사진 목록 실패: {e}")
+                self.players = []
+            self.full = {}
+            for p in self.players:
+                self.full.setdefault(norm_name(p["first_name"] + p["second_name"]), []).append(p)
+
+    def find(self, first, last, display):
+        self.load()
+        found = self.full.get(norm_name(display)) or self.full.get(norm_name((first or "") + (last or "")))
+        if not found and last:
+            # 이름 표기가 조금 다를 때: 성(또는 FPL 표시 이름)이 같고 이름 첫 글자가 같은 선수가 한 명뿐이면 그 선수
+            initial = norm_name(first or display)[:1]
+            key = norm_name(last)
+            found = [p for p in self.players
+                     if key in (norm_name(p["second_name"]), norm_name(p["web_name"]), norm_name(p["second_name"].split()[-1]))
+                     and norm_name(p["first_name"])[:1] == initial]
+        if not found and " " not in (display or "").strip():
+            # 한 단어 이름(예: Rayan, Evanilson)은 FPL 표시 이름과 비교
+            found = [p for p in self.players if norm_name(p["web_name"]) == norm_name(display)]
+        return found[0]["code"] if found and len(found) == 1 else None
+
+
 def collect_details(matches):
     """진행 중인 경기와 최근에 끝난 경기의 기록(골·카드·교체, 팀 기록, 라인업)."""
     try:
@@ -773,6 +821,7 @@ def collect_details(matches):
     live = [m for m in matches if m["state"] == "in"]
     done = [m for m in matches if m["state"] == "post"][-DETAILS_RECENT:]
     out, fetched = {}, 0
+    photos = PlayerPhotos()  # 새로 받을 경기가 있을 때만 FPL 목록을 한 번 받는다
     for m in live + done:
         old = cached.get(m["id"])
         if old and old.get("final") and old.get("v") == DETAILS_VERSION and m["state"] == "post":
@@ -780,7 +829,7 @@ def collect_details(matches):
             continue
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"
         try:
-            out[m["id"]] = parse_details(fetch_json(url), m)
+            out[m["id"]] = parse_details(fetch_json(url), m, photos)
             fetched += 1
         except Exception as e:
             log(f"  경기 기록 실패 ({m['home']} - {m['away']}): {e}")

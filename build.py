@@ -863,22 +863,42 @@ def load_last_data():
         return None
 
 
+def quick_update(last):
+    """10분마다: 카페 글과 경기·순위(ESPN)만 새로 가져와 직전 전체 업데이트 결과에 덮어쓴다.
+    레딧·무료 번역은 자주 요청하면 막히므로 여기서는 부르지 않는다."""
+    cafe, cafe_status = collect_cafe()
+    if cafe_status == "ok":
+        last["cafe"], last["cafe_status"], last["cafe_checked"] = cafe, cafe_status, NOW.isoformat()
+    elif last.get("cafe") is None:
+        last["cafe_status"] = cafe_status  # 실패했으면 직전 목록을 그대로 두고, 목록이 아예 없을 때만 상태를 알린다
+
+    # 경기 중 점수가 멈춰 보이지 않도록 경기·순위도 새로 고친다. 실패하면 직전 값을 그대로 둔다.
+    errors = []
+    matches = safe("경기 일정", collect_matches, [], errors)
+    pl = safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors)
+    ucl = safe("챔피언스리그 순위", lambda: collect_standings("uefa.champions"), [], errors)
+    if matches:
+        last["matches"] = matches
+        explain_suspensions(last.get("injuries"), matches)
+    if pl:
+        last["standings"]["pl"] = pl
+    if ucl:
+        last["standings"]["ucl"] = ucl
+    last["competitions"] = competition_status(last["matches"], last["standings"])
+    last["scores_checked"] = NOW.isoformat()
+    write_page(last)
+    log(f"완료: 카페·경기만 업데이트 (카페 {cafe_status}, 실패 {errors or '없음'})")
+
+
 def main():
-    # 10분마다 실행된다. 직전 전체 업데이트가 최근이면 카페 글만 새로 가져와서 다시 만든다.
-    # (레딧·무료 번역은 자주 요청하면 막히므로 1시간에 한 번만)
+    # 10분마다 실행된다. 직전 전체 업데이트가 50분 안이면 카페·경기만 새로 고치고, 아니면 전체 업데이트.
     last = load_last_data()
     force_full = os.environ.get("FORCE_FULL", "").lower() == "true" or "--full" in sys.argv
     if last and not force_full:
         age = NOW - (parse_date(last.get("generated")) or NOW - FULL_EVERY)
         if age < FULL_EVERY:
-            log(f"카페만 새로 고칩니다 (마지막 전체 업데이트 {int(age.total_seconds() // 60)}분 전).")
-            cafe, cafe_status = collect_cafe()
-            if cafe_status == "ok":
-                last["cafe"], last["cafe_status"], last["cafe_checked"] = cafe, cafe_status, NOW.isoformat()
-            elif last.get("cafe") is None:
-                last["cafe_status"] = cafe_status  # 실패했으면 직전 목록을 그대로 두고, 목록이 아예 없을 때만 상태를 알린다
-            write_page(last)
-            log(f"완료: 카페만 업데이트 ({cafe_status})")
+            log(f"카페·경기만 새로 고칩니다 (마지막 전체 업데이트 {int(age.total_seconds() // 60)}분 전).")
+            quick_update(last)
             return
     full_update()
 

@@ -114,7 +114,9 @@
   /* ---------- 순위·폼 요약 ---------- */
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 13px 15px; box-shadow: var(--shadow); }
-  .stat { border-top: 3px solid var(--red); }
+  .stat { border-top: 3px solid var(--red); position: relative; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .stat:active { transform: scale(.98); }
+  .stat .go { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 26px; font-weight: 300; color: var(--muted); }
   .stat.ucl { border-top-color: var(--teal); }
   .label { font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .02em; }
   .big { font-weight: 800; font-size: 34px; line-height: 1.1; margin-top: 4px; letter-spacing: -.03em; }
@@ -440,8 +442,8 @@ function renderSummary() {
     </div>`;
   }
   html += `<div class="stats">`;
-  if (pl) html += `<div class="card stat"><div class="label">프리미어리그</div><div class="big">${pl.rank}<small>위</small></div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div></div>`;
-  if (ucl) html += `<div class="card stat ucl"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}<small>위</small></div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div></div>`;
+  if (pl) html += `<button class="card stat" data-table="pl"><div class="label">프리미어리그</div><div class="big">${pl.rank}<small>위</small></div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div><span class="go">›</span></button>`;
+  if (ucl) html += `<button class="card stat ucl" data-table="ucl"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}<small>위</small></div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div><span class="go">›</span></button>`;
   if (form.length) {
     html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">오른쪽이 최근</div></div>
       <div class="dots">${form.map((m) => `<span class="dot ${m.result}" title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
@@ -451,8 +453,12 @@ function renderSummary() {
     html += `<div class="card cups"><div class="head label">참가 중인 컵대회</div>${cups.map((c) => compHtml(c, true)).join("")}</div>`;
   }
   html += `</div>`;
-  document.getElementById("panel-home").innerHTML = html;
-  document.getElementById("updated").textContent = `${fmtDate(DATA.generated)} 업데이트 · ${ago(DATA.generated)}`;
+  const home = document.getElementById("panel-home");
+  home.innerHTML = html;
+  home.querySelectorAll("[data-table]").forEach((b) => b.addEventListener("click", () => goTable(b.dataset.table)));
+  // 10분마다 경기·카페만 새로 고친 시각까지 포함해 가장 최근 업데이트 시각을 보여준다
+  const latest = [DATA.generated, DATA.scores_checked, DATA.cafe_checked].filter(Boolean).sort().pop();
+  document.getElementById("updated").textContent = `${fmtDate(latest)} 업데이트 · ${ago(latest)}`;
 }
 
 function newsItemHtml(n, withTag) {
@@ -579,9 +585,9 @@ function renderTables() {
   const el = document.getElementById("sub-tables");
   const plZone = (r) => (r <= 4 ? "good" : r >= 18 ? "bad" : "");
   const uclZone = (r) => (r <= 8 ? "good" : r <= 24 ? "neutral" : "bad");
-  el.innerHTML = `<h2>프리미어리그</h2>${tableHtml(DATA.standings.pl, plZone)}
+  el.innerHTML = `<h2 id="table-pl">프리미어리그</h2>${tableHtml(DATA.standings.pl, plZone)}
     <div class="legend"><span><i style="background:var(--good)"></i>챔스 진출권(1~4위)</span><span><i style="background:#8c8486"></i>강등권</span></div>
-    <h2 class="teal">챔피언스리그 리그 페이즈</h2>${tableHtml(DATA.standings.ucl, uclZone)}
+    <h2 class="teal" id="table-ucl">챔피언스리그 리그 페이즈</h2>${tableHtml(DATA.standings.ucl, uclZone)}
     <div class="legend"><span><i style="background:var(--good)"></i>16강 직행 (1~8위)</span><span><i style="background:var(--warn)"></i>플레이오프 (9~24위)</span><span><i style="background:#8c8486"></i>탈락 (25~36위)</span></div>`;
 }
 
@@ -626,6 +632,14 @@ function showTab(name) {
 function goTab(name) {
   showTab(name);
   window.scrollTo(0, 0);
+}
+/* 홈의 순위 카드를 누르면: 대회 탭 → 순위 → 그 대회 순위표 위치로 */
+function goTable(which) {
+  goTab("comps");
+  showSub(document.getElementById("panel-comps"), "tables");
+  const h = document.getElementById("table-" + which);
+  if (!h || which === "pl") return;  // 프리미어리그 표는 맨 위에 있으니 그대로 둔다
+  window.scrollTo({ top: h.getBoundingClientRect().top + window.scrollY - 12, behavior: "smooth" });
 }
 document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => goTab(b.dataset.tab)));
 

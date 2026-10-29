@@ -596,7 +596,17 @@ def parse_event(event, comp):
         "round": round_key((event.get("seasonType") or {}).get("name")),
         "leg": (c.get("leg") or {}).get("value"),
         "note": notes[0] if notes else None,  # 예: "2nd Leg - Liverpool advance 4-1 on aggregate"
+        "pens": pens_ko(notes[0] if notes else None),
     }
+
+
+def pens_ko(note):
+    """"Liverpool win 6-5 on penalties" → "승부차기 6-5 리버풀 승" """
+    # 2차전은 "2nd Leg - Chelsea win 4-3 on penalties" 처럼 앞에 붙는 말이 있다
+    found = re.search(r"^(.+?) win (\d+)-(\d+) on penalties", (note or "").split(" - ")[-1])
+    if not found:
+        return None
+    return f"승부차기 {found[2]}-{found[3]} {team_ko(found[1].strip())} 승"
 
 
 def collect_matches():
@@ -638,6 +648,144 @@ def collect_standings(slug):
         })
     rows.sort(key=lambda r: r["rank"])
     return rows
+
+
+# ---------------------------------------------------------------- 경기 기록 (ESPN 경기 요약)
+
+DETAILS_FILE = ROOT / "cache" / "match_details.json"  # 끝난 경기 기록은 바뀌지 않으므로 다시 받지 않는다
+DETAILS_RECENT = 10               # 최근에 끝난 경기 몇 개까지 기록을 보여줄지 (진행 중인 경기는 항상)
+DETAILS_FINAL_AFTER = dt.timedelta(hours=4)  # 킥오프 후 이만큼 지난 뒤 받은 기록은 확정으로 보고 캐시에서 재사용
+
+# (ESPN 항목, 한국어 이름) — 화면에 이 순서로 보여준다
+STAT_KO = [
+    ("possessionPct", "점유율"), ("totalShots", "슈팅"), ("shotsOnTarget", "유효 슈팅"),
+    ("blockedShots", "막힌 슈팅"), ("wonCorners", "코너킥"), ("totalPasses", "패스"),
+    ("passPct", "패스 성공률"), ("totalCrosses", "크로스"), ("totalTackles", "태클"),
+    ("interceptions", "가로채기"), ("saves", "선방"), ("foulsCommitted", "파울"),
+    ("offsides", "오프사이드"), ("yellowCards", "경고"), ("redCards", "퇴장"),
+]
+
+
+def event_kind(espn_type):
+    t = espn_type or ""
+    if t == "own-goal":
+        return "og"
+    if t == "penalty---scored":
+        return "pen"
+    if t.startswith("penalty---"):  # 실축·선방
+        return "penmiss"
+    if t.startswith("goal"):
+        return "goal"
+    if "red" in t:  # 퇴장, 경고 누적 퇴장
+        return "red"
+    if "yellow" in t:
+        return "yellow"
+    if t == "substitution":
+        return "sub"
+    if t == "halftime":
+        return "ht"
+    return None
+
+
+def parse_details(summary, m):
+    home_id = next((c["team"]["id"] for c in summary["header"]["competitions"][0]["competitors"]
+                    if c["homeAway"] == "home"), None)
+
+    events = []
+    for k in summary.get("keyEvents", []):
+        kind = event_kind((k.get("type") or {}).get("type"))
+        if not kind:
+            continue
+        names = [(p.get("athlete") or {}).get("displayName") for p in k.get("participants", [])]
+        names = [n for n in names if n]
+        team_id = (k.get("team") or {}).get("id")
+        ev = {"min": (k.get("clock") or {}).get("displayValue", "").strip(), "kind": kind}
+        if kind != "ht":
+            ev["side"] = "home" if team_id == home_id else "away"
+            ev["player"] = names[0] if names else ""
+            if len(names) > 1 and kind in ("goal", "sub"):
+                ev["other"] = names[1]  # 골: 도움 선수 / 교체: 나간 선수
+        events.append(ev)
+
+    stats = {}
+    for t in (summary.get("boxscore") or {}).get("teams", []):
+        side = "home" if t["team"]["id"] == home_id else "away"
+        raw = {s["name"]: s.get("displayValue") for s in t.get("statistics", [])}
+        try:  # ESPN 성공률은 0.8 처럼 대충 나와서 직접 계산한다
+            raw["passPct"] = f"{round(100 * float(raw['accuratePasses']) / float(raw['totalPasses']))}%"
+        except (KeyError, ValueError, TypeError, ZeroDivisionError):
+            raw.pop("passPct", None)
+        if raw.get("possessionPct"):
+            raw["possessionPct"] = f"{round(float(raw['possessionPct']))}%"
+        stats[side] = raw
+    stat_rows = [{"label": ko, "home": stats.get("home", {}).get(key), "away": stats.get("away", {}).get(key)}
+                 for key, ko in STAT_KO
+                 if stats.get("home", {}).get(key) is not None and stats.get("away", {}).get(key) is not None]
+
+    # 선수별 골·도움·카드·교체 시각 (라인업 옆에 작게 표시)
+    marks = {}
+    for ev in events:
+        if ev["kind"] == "ht":
+            continue
+        marks.setdefault(ev["player"], []).append(ev["kind"] + "|" + ev["min"])
+        if ev.get("other"):
+            marks.setdefault(ev["other"], []).append(("assist" if ev["kind"] == "goal" else "off") + "|" + ev["min"])
+
+    lineups = {}
+    for r in summary.get("rosters", []):
+        side = r.get("homeAway")
+        players = []
+        for p in r.get("roster", []):
+            name = (p.get("athlete") or {}).get("displayName", "")
+            players.append({
+                "no": p.get("jersey"), "name": name,
+                "pos": (p.get("position") or {}).get("abbreviation"),
+                "start": bool(p.get("starter")), "on": bool(p.get("subbedIn")),
+                "order": p.get("formationPlace") or 99, "marks": marks.get(name, []),
+            })
+        starters = sorted([p for p in players if p["start"]], key=lambda p: int(p["order"]))
+        bench = [p for p in players if not p["start"]]
+        bench.sort(key=lambda p: not p["on"])  # 교체로 들어온 선수를 먼저
+        for p in starters + bench:
+            del p["order"]
+        lineups[side] = {"formation": r.get("formation"), "starters": starters, "bench": bench}
+
+    return {
+        "id": m["id"],
+        "fetched": NOW.isoformat(),
+        "final": m["state"] == "post" and NOW - parse_date(m["date"]) > DETAILS_FINAL_AFTER,
+        "events": events,
+        "stats": stat_rows,
+        "lineups": lineups if len(lineups) == 2 else None,
+    }
+
+
+def collect_details(matches):
+    """진행 중인 경기와 최근에 끝난 경기의 기록(골·카드·교체, 팀 기록, 라인업)."""
+    try:
+        cached = json.loads(DETAILS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cached = {}
+    live = [m for m in matches if m["state"] == "in"]
+    done = [m for m in matches if m["state"] == "post"][-DETAILS_RECENT:]
+    out, fetched = {}, 0
+    for m in live + done:
+        old = cached.get(m["id"])
+        if old and old.get("final") and m["state"] == "post":
+            out[m["id"]] = old
+            continue
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"
+        try:
+            out[m["id"]] = parse_details(fetch_json(url), m)
+            fetched += 1
+        except Exception as e:
+            log(f"  경기 기록 실패 ({m['home']} - {m['away']}): {e}")
+            if old:
+                out[m["id"]] = old
+    DETAILS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DETAILS_FILE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    log(f"경기 기록: {len(out)}경기 (새로 받음 {fetched})")
+    return out
 
 
 def ucl_zone(rank):
@@ -864,7 +1012,7 @@ def load_last_data():
 
 
 def quick_update(last):
-    """10분마다: 카페 글과 경기·순위(ESPN)만 새로 가져와 직전 전체 업데이트 결과에 덮어쓴다.
+    """10분마다: 카페 글과 경기·경기 기록·순위(ESPN)만 새로 가져와 직전 전체 업데이트 결과에 덮어쓴다.
     레딧·무료 번역은 자주 요청하면 막히므로 여기서는 부르지 않는다."""
     cafe, cafe_status = collect_cafe()
     if cafe_status == "ok":
@@ -880,6 +1028,7 @@ def quick_update(last):
     if matches:
         last["matches"] = matches
         explain_suspensions(last.get("injuries"), matches)
+        last["details"] = safe("경기 기록", lambda: collect_details(matches), last.get("details") or {}, errors)
     if pl:
         last["standings"]["pl"] = pl
     if ucl:
@@ -913,6 +1062,7 @@ def full_update():
     injuries = safe("부상자", lambda: collect_injuries(translator), None, errors)
     matches = safe("경기 일정", collect_matches, [], errors)
     explain_suspensions(injuries, matches)
+    details = safe("경기 기록", lambda: collect_details(matches), {}, errors)
     cafe, cafe_status = collect_cafe()
     standings = {
         "pl": safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors),
@@ -933,6 +1083,7 @@ def full_update():
         "cafe_checked": NOW.isoformat(),
         "injuries": injuries,
         "matches": matches,
+        "details": details,
         "standings": standings,
         "competitions": competition_status(matches, standings),
         "errors": errors,

@@ -247,6 +247,84 @@
   .score.time { font-size: 16px; font-weight: 700; color: var(--muted); }
   .res { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 5px; color: #fff; }
   .res-W { background: var(--good); } .res-D { background: #8c8486; } .res-L { background: var(--red); }
+  .match.has-detail, .matchday.has-detail, .dot[data-match] { cursor: pointer; }
+  .matchday .rec-link { color: var(--red-ink); font-weight: 800; }
+  .recent { grid-column: 1 / -1; padding: 12px 0 0; overflow: hidden; }
+  .recent .label { padding: 0 15px; }
+  .recent .list { border: 0; border-radius: 0; box-shadow: none; background: none; }
+  .recent .match { padding: 8px 15px 12px; }
+  .match.has-detail:active { background: var(--red-soft); }
+  .match .rec { margin-left: auto; font-weight: 800; color: var(--red-ink); white-space: nowrap; }
+  .match .head .res + .rec { margin-left: 0; }
+  .match .head > span:first-child { flex: 1; min-width: 0; }
+
+  /* ---------- 경기 기록 (전체 화면으로 열림) ---------- */
+  .sheet { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto; overscroll-behavior: contain; }
+  .sheet-top {
+    color: #fff; padding: calc(8px + env(safe-area-inset-top)) 0 16px;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.035) 0 14px, transparent 14px 28px),
+      radial-gradient(120% 140% at 85% 0%, #e5193d 0%, var(--red) 45%, var(--red-deep) 100%);
+  }
+  .sheet-top .bar { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+  .sheet-top .bar span { flex: 1; opacity: .9; }
+  .sheet-top .close {
+    width: 38px; height: 38px; margin-left: -8px; border: 0; border-radius: 50%; background: none; color: #fff; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .sheet-top .close svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .sheet-top .vs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; text-align: center; margin-top: 6px; }
+  .sheet-top .side img { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 50%; padding: 5px; }
+  .sheet-top .side div { font-weight: 700; margin-top: 5px; font-size: 14.5px; }
+  .sheet-top .kick { font-weight: 800; font-size: 34px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; padding: 0 10px; }
+  .sheet-top .state { display: inline-block; margin-top: 6px; background: var(--yellow); color: #1c1516; border-radius: 6px; padding: 2px 10px; font-weight: 800; font-size: 12.5px; }
+  .sheet .wrap { padding-top: 14px; padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+  .sheet .seg { position: sticky; top: 8px; z-index: 2; box-shadow: var(--shadow); }
+
+  /* 주요 장면: 홈 팀은 왼쪽, 원정 팀은 오른쪽, 가운데에 시간 */
+  .tl-row { display: grid; grid-template-columns: 1fr 52px 1fr; align-items: center; gap: 6px; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .tl-row:first-child { border-top: 0; }
+  .tl-row .min { text-align: center; font-size: 12.5px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tl-row.big .min { color: var(--red-ink); }
+  .tl-ev { word-break: keep-all; overflow-wrap: anywhere; display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; line-height: 1.35; }
+  .tl-ev.home { justify-content: flex-end; text-align: right; }
+  .tl-ev.home .ico { order: 2; }
+  .tl-ev b { font-weight: 700; }
+  .tl-row.big .tl-ev b { font-weight: 800; }
+  .tl-ev small { display: block; color: var(--muted); font-size: 12px; }
+  .tl-ev .in { color: var(--good); }
+  .ico { flex: none; width: 22px; text-align: center; font-size: 15px; }
+  .card-y, .card-r { display: inline-block; width: 11px; height: 15px; border-radius: 2px; vertical-align: -2px; }
+  .card-y { background: #f2c200; } .card-r { background: #e01e1e; }
+  .tl-ht { padding: 7px 12px; border-top: 1px solid var(--line); text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); background: color-mix(in srgb, var(--line) 45%, transparent); }
+
+  /* 팀 기록: 양쪽 숫자 + 가운데서 만나는 막대 */
+  .st-row { padding: 10px 16px 11px; border-top: 1px solid var(--line); }
+  .st-row:first-child { border-top: 0; }
+  .st-row .nums { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .st-row .nums span:nth-child(2) { font-size: 12.5px; color: var(--muted); font-weight: 700; }
+  .st-row .nums .win { font-weight: 800; }
+  .st-row .bars { display: flex; gap: 4px; margin-top: 6px; }
+  .st-row .bars div { flex: 1; height: 6px; border-radius: 3px; background: var(--line); display: flex; overflow: hidden; }
+  .st-row .bars div:first-child { justify-content: flex-end; }
+  .st-row .bars i { display: block; height: 100%; border-radius: 3px; background: #8c8486; }
+  .st-row .bars i.lfc { background: var(--red); }
+  .st-head { display: flex; justify-content: space-between; padding: 10px 16px; font-size: 13px; font-weight: 800; border-bottom: 1px solid var(--line); }
+
+  /* 라인업 */
+  .lu-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 800; }
+  .lu-head img { width: 22px; height: 22px; object-fit: contain; }
+  .lu-head span { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .lu { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; padding: 7px 16px; border-top: 1px solid var(--line); font-size: 14px; }
+  .lu-head + .lu { border-top: 0; }
+  .lu .no { text-align: center; font-weight: 800; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lu .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lu .nm em { font-style: normal; font-size: 11.5px; color: var(--muted); margin-left: 6px; }
+  .lu .mk { display: flex; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .lu .mk .in { color: var(--good); font-weight: 700; } .lu .mk .off { color: var(--bad); font-weight: 700; }
+  .lu.unused { color: var(--muted); }
+  .lu-sub { padding: 8px 16px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 800; color: var(--muted); background: color-mix(in srgb, var(--line) 45%, transparent); }
+  .ext { display: block; margin-top: 14px; text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); text-decoration: underline; }
 
   /* ---------- 순위표 ---------- */
   /* 칸이 많아 좁은 화면에서는 옆으로 밀어 볼 수 있게 하고, 순위·팀 칸은 왼쪽에 고정한다 */
@@ -380,6 +458,8 @@
     <button role="tab" data-tab="comps" data-title="순위·대회">
       <svg viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M10 17h4v4h-4z"/></svg>대회</button>
   </div></nav>
+
+  <div class="sheet" id="sheet" hidden></div>
 </div>
 
 <script>
@@ -427,7 +507,8 @@ function renderSummary() {
   let html = "";
   if (next) {
     const live = next.state === "in";
-    html += `<div class="matchday">
+    const rec = live && hasDetail(next);
+    html += `<div class="matchday ${rec ? "has-detail" : ""}" ${rec ? `data-match="${esc(next.id)}"` : ""}>
       <div class="bar"><span class="md">${live ? "LIVE" : "NEXT MATCH"}</span><span>${esc(next.comp)}</span></div>
       <div class="vs">
         <div class="side ${isLfc(next.home) ? "lfc" : ""}">${img(next.home_logo)}<div>${esc(next.home)}</div></div>
@@ -438,15 +519,18 @@ function renderSummary() {
         </div>
         <div class="side ${isLfc(next.away) ? "lfc" : ""}">${img(next.away_logo)}<div>${esc(next.away)}</div></div>
       </div>
-      ${next.venue ? `<div class="venue">${esc(next.venue)}</div>` : ""}
+      ${rec ? `<div class="venue rec-link">경기 기록 보기 ›</div>` : next.venue ? `<div class="venue">${esc(next.venue)}</div>` : ""}
     </div>`;
   }
   html += `<div class="stats">`;
+  // 가장 최근에 끝난 경기 (누르면 경기 기록)
+  const last = DATA.matches.filter((m) => m.state === "post").pop();
+  if (last) html += `<div class="card recent"><div class="label">지난 경기</div><div class="list">${matchRow(last)}</div></div>`;
   if (pl) html += `<button class="card stat" data-table="pl"><div class="label">프리미어리그</div><div class="big">${pl.rank}<small>위</small></div><div class="sub">승점 ${esc(pl.pts)} · ${esc(pl.p)}경기</div><span class="go">›</span></button>`;
   if (ucl) html += `<button class="card stat ucl" data-table="ucl"><div class="label">챔피언스리그</div><div class="big">${ucl.rank}<small>위</small></div><div class="sub">승점 ${esc(ucl.pts)} · ${esc(ucl.p)}경기</div><span class="go">›</span></button>`;
   if (form.length) {
     html += `<div class="card form"><div><div class="label">최근 ${form.length}경기</div><div class="sub">오른쪽이 최근</div></div>
-      <div class="dots">${form.map((m) => `<span class="dot ${m.result}" title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
+      <div class="dots">${form.map((m) => `<span class="dot ${m.result}" ${hasDetail(m) ? `data-match="${esc(m.id)}" role="button"` : ""} title="${esc(m.home)} ${esc(m.home_score)}-${esc(m.away_score)} ${esc(m.away)}">${RES_KO[m.result]}</span>`).join("")}</div></div>`;
   }
   const cups = DATA.competitions.filter((c) => c.steps && c.alive);
   if (cups.length) {
@@ -553,8 +637,9 @@ function matchRow(m) {
     ? `<div class="score time">${fmtTime(m.date)}</div>`
     : `<div class="score">${esc(m.home_score)} - ${esc(m.away_score)}</div>`;
   const live = m.state === "in" ? ` · <b style="color:var(--red-ink)">진행 중 ${esc(m.detail || "")}</b>` : "";
-  return `<div class="match">
-    <div class="head"><span>${fmtDay(m.date)} · ${esc(m.comp)}${live}</span>${m.result ? `<span class="res res-${m.result}">${RES_KO[m.result]}</span>` : ""}</div>
+  const rec = hasDetail(m) ? `<span class="rec">기록 ›</span>` : "";
+  return `<div class="match ${rec ? "has-detail" : ""}" ${rec ? `data-match="${esc(m.id)}"` : ""}>
+    <div class="head"><span>${fmtDay(m.date)} · ${esc(m.comp)}${live}</span>${m.result ? `<span class="res res-${m.result}">${RES_KO[m.result]}</span>` : ""}${rec}</div>
     <div class="team ${isLfc(m.home) ? "lfc" : ""}">${img(m.home_logo)}<span>${esc(m.home)}</span></div>
     ${center}
     <div class="team away ${isLfc(m.away) ? "lfc" : ""}">${img(m.away_logo)}<span>${esc(m.away)}</span></div>
@@ -567,8 +652,116 @@ function renderMatches() {
   const block = (list, emptyText) => `<div class="list">${list.length ? list.map(matchRow).join("") : `<div class="empty">${emptyText}</div>`}</div>`;
   el.innerHTML = `<h2>다가오는 경기</h2>${block(upcoming.slice(0, 10), "예정된 경기가 없어요.")}
     <h2>최근 결과</h2>${block(done.slice(0, 15), "아직 치른 경기가 없어요.")}
-    <div class="notice">시간은 모두 한국 시간이에요.</div>`;
+    <div class="notice">시간은 모두 한국 시간이에요. '기록 ›'이 있는 경기를 누르면 경기 기록을 볼 수 있어요.</div>`;
 }
+
+/* ---------- 경기 기록 (골·카드·교체, 팀 기록, 라인업) ---------- */
+const hasDetail = (m) => !!(DATA.details && DATA.details[m.id]);
+let sheetTab = "events";
+const markHtml = (mk) => {
+  const [kind, min] = mk.split("|");
+  const icon = { goal: "⚽", pen: "⚽ PK", og: "⚽ 자책", penmiss: "PK 실축", yellow: `<i class="card-y"></i>`, red: `<i class="card-r"></i>`,
+    assist: "도움", sub: `<b class="in">▲</b>`, off: `<b class="off">▼</b>` }[kind] || "";
+  return `<span>${icon} ${esc(min)}</span>`;
+};
+function eventsHtml(d, m) {
+  if (!d.events.length) return `<div class="list"><div class="empty">아직 기록된 장면이 없어요.</div></div>`;
+  const row = (e) => {
+    if (e.kind === "ht") return `<div class="tl-ht">전반 종료 ${esc(e.min)}</div>`;
+    const ico = { goal: "⚽", pen: "⚽", og: "⚽", penmiss: "✕", yellow: `<i class="card-y"></i>`, red: `<i class="card-r"></i>`, sub: "⇄" }[e.kind];
+    let text;
+    if (e.kind === "sub") text = `<b class="in">${esc(e.player)}</b><small>${esc(e.other || "")} 아웃</small>`;
+    else {
+      const note = { pen: "페널티킥", og: "자책골", penmiss: "페널티킥 실축", red: "퇴장" }[e.kind];
+      const sub = e.kind === "goal" && e.other ? `도움 ${esc(e.other)}` : note || "";
+      text = `<b>${esc(e.player)}</b>${sub ? `<small>${sub}</small>` : ""}`;
+    }
+    const ev = `<div class="tl-ev ${e.side}"><span class="ico">${ico}</span><div>${text}</div></div>`;
+    const big = ["goal", "pen", "og", "red"].includes(e.kind) ? "big" : "";
+    return `<div class="tl-row ${big}">${e.side === "home" ? ev : "<div></div>"}<div class="min">${esc(e.min)}</div>${e.side === "away" ? ev : "<div></div>"}</div>`;
+  };
+  return `<div class="list">${d.events.map(row).join("")}</div>`;
+}
+function statsHtml(d, m) {
+  if (!d.stats.length) return `<div class="list"><div class="empty">아직 팀 기록이 없어요.</div></div>`;
+  const num = (v) => parseFloat(String(v).replace("%", "")) || 0;
+  const lfcHome = isLfc(m.home);
+  const rows = d.stats.map((s) => {
+    const h = num(s.home), a = num(s.away), total = h + a;
+    const hp = total ? (100 * h) / total : 0, ap = total ? (100 * a) / total : 0;
+    return `<div class="st-row">
+      <div class="nums"><span class="${h > a ? "win" : ""}">${esc(s.home)}</span><span>${esc(s.label)}</span><span class="${a > h ? "win" : ""}">${esc(s.away)}</span></div>
+      <div class="bars"><div><i class="${lfcHome ? "lfc" : ""}" style="width:${hp}%"></i></div><div><i class="${lfcHome ? "" : "lfc"}" style="width:${ap}%"></i></div></div>
+    </div>`;
+  }).join("");
+  return `<div class="list"><div class="st-head"><span>${esc(m.home)}</span><span>${esc(m.away)}</span></div>${rows}</div>`;
+}
+function lineupHtml(d, m) {
+  if (!d.lineups) return `<div class="list"><div class="empty">아직 라인업이 나오지 않았어요.</div></div>`;
+  const player = (p, unused) => `<div class="lu ${unused ? "unused" : ""}"><span class="no">${esc(p.no ?? "")}</span>
+    <span class="nm">${esc(p.name)}${p.pos && p.pos !== "SUB" ? `<em>${esc(p.pos)}</em>` : ""}</span>
+    <span class="mk">${p.marks.map(markHtml).join("")}</span></div>`;
+  const team = (side) => {
+    const l = d.lineups[side];
+    const name = side === "home" ? m.home : m.away;
+    return `<div class="list" style="margin-bottom:12px">
+      <div class="lu-head">${img(side === "home" ? m.home_logo : m.away_logo)}${esc(name)}<span>${esc(l.formation || "")}</span></div>
+      ${l.starters.map((p) => player(p)).join("")}
+      ${l.bench.length ? `<div class="lu-sub">교체 명단</div>${l.bench.map((p) => player(p, !p.on)).join("")}` : ""}
+    </div>`;
+  };
+  // 리버풀을 먼저 보여준다
+  return isLfc(m.home) ? team("home") + team("away") : team("away") + team("home");
+}
+function renderSheet(id) {
+  const m = DATA.matches.find((x) => x.id === id);
+  const d = DATA.details[id];
+  const el = document.getElementById("sheet");
+  const live = m.state === "in";
+  const state = live ? `진행 중 ${m.detail || ""}` : m.state === "post" ? m.pens || "경기 종료" : fmtTime(m.date);
+  const tabs = [["events", "주요 장면"], ["stats", "팀 기록"], ["lineup", "라인업"]];
+  const body = { events: eventsHtml, stats: statsHtml, lineup: lineupHtml }[sheetTab](d, m);
+  el.innerHTML = `<div class="sheet-top"><div class="wrap">
+      <div class="bar"><button class="close" id="sheet-close" aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <span>${esc(m.comp)} · ${fmtLongDay(m.date)}</span></div>
+      <div class="vs">
+        <div class="side">${img(m.home_logo)}<div>${esc(m.home)}</div></div>
+        <div><div class="kick">${esc(m.home_score ?? "")} - ${esc(m.away_score ?? "")}</div><span class="state">${esc(state)}</span></div>
+        <div class="side">${img(m.away_logo)}<div>${esc(m.away)}</div></div>
+      </div>
+    </div></div>
+    <div class="wrap">
+      <div class="seg">${tabs.map(([k, label]) => `<button data-st="${k}" aria-pressed="${k === sheetTab}">${label}</button>`).join("")}</div>
+      ${body}
+      <div class="notice">${live ? "경기 중에는 10분마다 새로 고쳐요. " : ""}기록 기준: ${ago(d.fetched)} · 출처: ESPN</div>
+      <a class="ext" href="https://www.espn.com/soccer/match/_/gameId/${esc(m.id)}" target="_blank" rel="noopener noreferrer">ESPN에서 더 자세히 보기</a>
+    </div>`;
+  el.querySelector("#sheet-close").addEventListener("click", () => history.back());
+  el.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {
+    sheetTab = b.dataset.st;
+    renderSheet(id);
+  }));
+}
+function openMatch(id) {
+  if (!DATA.details || !DATA.details[id]) return;
+  sheetTab = "events";
+  renderSheet(id);
+  const el = document.getElementById("sheet");
+  el.hidden = false;
+  el.scrollTop = 0;
+  document.body.style.overflow = "hidden";
+  // 휴대폰 '뒤로 가기'로 닫을 수 있게 기록을 하나 남긴다
+  history.pushState({ sheet: id }, "");
+}
+function closeMatch() {
+  document.getElementById("sheet").hidden = true;
+  document.body.style.overflow = "";
+}
+addEventListener("popstate", closeMatch);
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-match]");
+  if (t) openMatch(t.dataset.match);
+});
 
 /* ---------- 순위 ---------- */
 function tableHtml(rows, zoneOf) {
@@ -729,7 +922,7 @@ document.getElementById("forget").addEventListener("click", () => {
     setTimeout(() => (el.style.transition = ""), 200);
   };
   addEventListener("touchstart", (e) => {
-    const appOpen = !document.getElementById("app").hidden;
+    const appOpen = !document.getElementById("app").hidden && document.getElementById("sheet").hidden;
     startY = appOpen && window.scrollY <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null;
   }, { passive: true });
   addEventListener("touchmove", (e) => {

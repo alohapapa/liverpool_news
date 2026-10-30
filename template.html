@@ -7,8 +7,11 @@
 <meta name="theme-color" content="#c8102e">
 <meta name="apple-mobile-web-app-title" content="리버풀 소식">
 <title>리버풀 소식</title>
-<link rel="icon" href="https://a.espncdn.com/i/teamlogos/soccer/500/364.png">
-<link rel="apple-touch-icon" href="https://a.espncdn.com/i/teamlogos/soccer/500/364.png">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
   /* 리버풀 공식 색: 레드 #C8102E · 청록 #00B2A9 · 노랑 #F6EB61 */
@@ -68,6 +71,23 @@
       radial-gradient(120% 140% at 85% 0%, #e5193d 0%, var(--red) 45%, var(--red-deep) 100%);
   }
   .hero .brand { display: flex; align-items: center; gap: 12px; }
+  .hero .brand > div:nth-child(2) { flex: 1; min-width: 0; }
+  .bell {
+    flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; cursor: pointer; display: grid; place-items: center;
+    background: rgba(255,255,255,.14); color: #fff;
+  }
+  .bell svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .bell.on { background: var(--yellow); color: #1c1516; }
+
+  /* ---------- 알림 설정 ---------- */
+  .al-state { padding: 14px 16px; font-size: 14.5px; line-height: 1.6; }
+  .al-state b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .al-btn { display: block; width: 100%; margin-top: 12px; padding: 14px; border: 0; border-radius: 12px; cursor: pointer; background: var(--red); color: #fff; font: inherit; font-weight: 800; font-size: 16px; }
+  .al-btn.sub { background: var(--card); color: var(--text); border: 1px solid var(--line); font-size: 14.5px; }
+  .al-code { width: 100%; margin-top: 10px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: 12px/1.4 ui-monospace, monospace; word-break: break-all; resize: none; }
+  .al-steps { margin: 0; padding: 4px 16px 14px 34px; font-size: 14px; line-height: 1.7; }
+  .al-steps li { margin-top: 6px; }
+  .al-steps code { font-size: 12.5px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
   /* 엠블럼이 빨간색이라 빨간 배경에 묻히지 않도록 흰 원형 배지 위에 올린다 */
   .badge {
     flex: none; display: grid; place-items: center; border-radius: 50%; background: #fff;
@@ -501,6 +521,7 @@
           <div class="ynwa">YOU'LL NEVER WALK ALONE</div>
           <div class="updated" id="updated"></div>
         </div>
+        <button class="bell" id="bell" aria-label="알림 설정"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg></button>
       </div>
     </div>
   </header>
@@ -552,6 +573,7 @@
 
 <script>
 const RAW = /*__DATA__*/null;
+const VAPID = /*__VAPID__*/null;  // 알림 등록용 공개 열쇠 (build.py 가 넣는다)
 let DATA = null;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1103,6 +1125,96 @@ function restoreSub(panel) {
 document.querySelectorAll(".seg").forEach((seg) => seg.querySelectorAll("button").forEach((b) =>
   b.addEventListener("click", () => showSub(seg.closest("section"), b.dataset.sub))));
 
+/* ---------- 휴대폰 알림 (라인업 발표) ----------
+   '알림 켜기' → 이 기기의 알림 주소를 코드(LFC1.xxxx)로 보여준다.
+   그 코드를 GitHub Secret PUSH_SUBSCRIPTIONS 에 넣어 두면, 라인업이 확인될 때 build.py 가 알림을 보낸다. */
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const subCode = (sub) => {
+  const j = sub.toJSON();
+  const raw = JSON.stringify({ endpoint: j.endpoint, keys: j.keys });
+  return "LFC1." + btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const vapidBytes = () => Uint8Array.from(atob(VAPID.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (VAPID.length % 4)) % 4)), (c) => c.charCodeAt(0));
+async function currentSub() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function refreshBell() {
+  const sub = await currentSub().catch(() => null);
+  document.getElementById("bell").classList.toggle("on", !!sub);
+}
+async function renderAlerts(note) {
+  const el = document.getElementById("sheet");
+  let state, action = "";
+  const sub = await currentSub().catch(() => null);
+  if (!VAPID) {
+    state = `<b>알림을 쓸 수 없어요</b>미리보기 화면에서는 알림 기능이 꺼져 있어요.`;
+  } else if (isIOS && !isStandalone()) {
+    state = `<b>바탕화면 아이콘으로 열어 주세요</b>아이폰은 사파리에서 <b style="display:inline">공유 → 홈 화면에 추가</b>로 만든 아이콘으로 열어야 알림을 켤 수 있어요. (iOS 16.4 이상)`;
+  } else if (!pushSupported()) {
+    state = `<b>이 브라우저는 알림을 지원하지 않아요</b>안드로이드는 크롬, 아이폰은 바탕화면에 추가한 아이콘으로 열어 주세요.`;
+  } else if (Notification.permission === "denied") {
+    state = `<b>알림이 차단돼 있어요</b>휴대폰 설정 → 알림에서 '리버풀 소식'을 허용한 뒤 다시 와 주세요.`;
+  } else if (sub) {
+    const code = subCode(sub);
+    state = `<b>🔔 이 기기는 알림이 켜져 있어요</b>아래 코드가 등록돼 있어야 알림이 와요. 처음이라면 아래 순서대로 등록해 주세요.`;
+    action = `<textarea class="al-code" id="al-code" rows="4" readonly>${esc(code)}</textarea>
+      <button class="al-btn" id="al-copy">코드 복사</button>
+      <button class="al-btn sub" id="al-off">이 기기 알림 끄기</button>`;
+  } else {
+    state = `<b>라인업 발표 알림</b>선발 라인업이 발표되면(킥오프 약 1시간 15분 전) 알림을 보내드려요. 경기 중에는 알림이 오지 않아요.`;
+    action = `<button class="al-btn" id="al-on">🔔 알림 켜기</button>`;
+  }
+  el.innerHTML = `<div class="sheet-top"><div class="wrap">
+      <div class="bar"><button class="close" id="sheet-close" aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span>알림 설정</span></div>
+    </div></div>
+    <div class="wrap">
+      <div class="list al-state">${state}${note ? `<div class="notice err">${esc(note)}</div>` : ""}${action}</div>
+      ${sub ? `<h2>코드 등록하는 법</h2><div class="list"><ol class="al-steps">
+        <li><b>코드 복사</b>를 누르세요.</li>
+        <li><b>사이트 주인이라면:</b> GitHub 저장소 → Settings → Secrets and variables → Actions → <code>PUSH_SUBSCRIPTIONS</code> 를 열고, 새 줄에 <code>이름 코드</code> 형태로 붙여넣고 저장하세요. (예: <code>내아이폰 LFC1.…</code>)</li>
+        <li><b>지인이라면:</b> 복사한 코드를 사이트 주인에게 보내 주세요.</li>
+        <li>다음 경기 라인업이 발표되면 알림이 와요.</li>
+      </ol></div>
+      <div class="notice">이 코드는 이 기기로 알림을 보내는 주소예요. 비밀번호는 아니지만 아무 데나 올리지는 마세요. 바탕화면 아이콘을 지웠다 다시 추가하면 코드가 바뀌니 다시 등록해야 해요.</div>` : ""}
+    </div>`;
+  el.querySelector("#sheet-close").addEventListener("click", () => history.back());
+  el.querySelector("#al-on")?.addEventListener("click", enableAlerts);
+  el.querySelector("#al-copy")?.addEventListener("click", async (e) => {
+    const box = document.getElementById("al-code");
+    try { await navigator.clipboard.writeText(box.value); } catch (err) { box.select(); document.execCommand("copy"); }
+    e.target.textContent = "복사했어요 ✓";
+  });
+  el.querySelector("#al-off")?.addEventListener("click", async () => {
+    await sub.unsubscribe().catch(() => {});
+    refreshBell(); renderAlerts();
+  });
+}
+async function enableAlerts() {
+  try {
+    const perm = await Notification.requestPermission();  // 버튼을 누른 순간에만 물어볼 수 있다
+    if (perm !== "granted") return renderAlerts("알림을 허용하지 않았어요.");
+    const reg = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes() });
+    refreshBell(); renderAlerts();
+  } catch (e) {
+    renderAlerts("알림을 켜지 못했어요: " + (e.message || e));
+  }
+}
+function openAlerts() {
+  const el = document.getElementById("sheet");
+  el.hidden = false; el.scrollTop = 0;
+  document.body.style.overflow = "hidden";
+  history.pushState({ sheet: "alerts" }, "");
+  renderAlerts();
+}
+document.getElementById("bell").addEventListener("click", openAlerts);
+if (pushSupported()) navigator.serviceWorker.register("sw.js").then(refreshBell).catch(() => {});
+
 function start(data) {
   DATA = data;
   document.getElementById("lock").hidden = true;
@@ -1110,6 +1222,13 @@ function start(data) {
   renderSummary(); renderNews(); renderInjuries(); renderMatches(); renderTables(); renderComps();
   document.querySelectorAll(".seg").forEach((seg) => restoreSub(seg.closest("section")));
   showTab("home");  // 열 때는 항상 홈에서 시작
+  // 알림을 눌러 들어온 경우: ?match=경기&tab=라인업 → 그 경기 화면을 바로 연다
+  const q = new URLSearchParams(location.search);
+  if (q.get("match")) {
+    history.replaceState(null, "", location.pathname);
+    openMatch(q.get("match"));
+    if (q.get("tab") && document.getElementById("sheet").hidden === false) { sheetTab = q.get("tab"); renderSheet(q.get("match")); }
+  }
 }
 
 /* ---------- 접속 코드 (build.py 의 encrypt 와 같은 방식으로 푼다) ---------- */

@@ -7,6 +7,7 @@ site/index.html 한 파일로 저장한다. 외부 라이브러리 없이 파이
 import base64
 import datetime as dt
 import email.utils
+import functools
 import hashlib
 import html
 import json
@@ -950,6 +951,7 @@ def collect_details(matches):
         try:
             out[m["id"]] = wait_for_lineups(m, photos, coaches)
             fetched += 1
+            notify_lineups(m, out[m["id"]])
         except Exception as e:
             log(f"  다음 경기 라인업 확인 실패: {e}")
             if cached.get(m["id"]):
@@ -1247,6 +1249,146 @@ def encrypt(text, code):
     return {"locked": True, "salt": b64(salt), "iv": b64(iv), "iter": PBKDF2_ITERATIONS, "data": b64(sealed)}
 
 
+# ---------------------------------------------------------------- 휴대폰 알림 (웹 푸시)
+#
+# 바탕화면에 추가한 사이트(아이폰 iOS 16.4+, 안드로이드 크롬)로 라인업 발표 알림을 보낸다.
+# - 보내는 쪽 열쇠(VAPID)는 접속 코드(SITE_CODE)에서 만든다 → 따로 등록할 비밀 값이 늘지 않는다.
+#   (접속 코드를 바꾸면 열쇠도 바뀌므로 알림을 다시 켜야 한다)
+# - 받는 사람 목록은 GitHub Secret PUSH_SUBSCRIPTIONS 에 한 줄에 하나씩 "이름 LFC1.xxxx" 형태로 넣는다.
+#   사이트의 '알림 켜기'를 누르면 나오는 코드가 LFC1.xxxx 이다.
+# - 암호화는 표준(RFC 8291 aes128gcm, RFC 8292 VAPID)대로 직접 한다 (cryptography 패키지만 사용).
+
+PUSH_SUB_URL = "https://alohapapa.github.io/liverpool_news/"
+NOTIFIED_FILE = ROOT / "cache" / "notified.json"  # 이미 알림을 보낸 경기 (같은 알림을 두 번 보내지 않게)
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def b64url_decode(text):
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+@functools.lru_cache(maxsize=2)  # 30만 번 반복 계산이라 한 번만 한다
+def vapid_key(code):
+    """접속 코드 → 알림 보내는 열쇠 (P-256). 같은 코드면 늘 같은 열쇠가 나온다."""
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551  # P-256 곡선의 차수
+    seed = hashlib.pbkdf2_hmac("sha256", code.encode("utf-8"), b"lfc-news-vapid", PBKDF2_ITERATIONS)
+    return ec.derive_private_key(int.from_bytes(seed, "big") % (n - 1) + 1, ec.SECP256R1())
+
+
+def vapid_public(code):
+    """브라우저가 알림을 등록할 때 쓰는 공개 열쇠 (공개돼도 괜찮다)."""
+    from cryptography.hazmat.primitives import serialization
+
+    raw = vapid_key(code).public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    return b64url(raw)
+
+
+def push_encrypt(payload, p256dh, auth):
+    """RFC 8291: 받는 기기만 풀 수 있게 알림 내용을 암호화한다."""
+    import hmac
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    def hkdf(salt, ikm, info, length):
+        prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+        return hmac.new(prk, info + b"\x01", hashlib.sha256).digest()[:length]
+
+    ua_public = b64url_decode(p256dh)
+    eph = ec.generate_private_key(ec.SECP256R1())
+    as_public = eph.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    shared = eph.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), ua_public))
+    ikm = hkdf(b64url_decode(auth), shared, b"WebPush: info\x00" + ua_public + as_public, 32)
+    salt = os.urandom(16)
+    cek = hkdf(salt, ikm, b"Content-Encoding: aes128gcm\x00", 16)
+    nonce = hkdf(salt, ikm, b"Content-Encoding: nonce\x00", 12)
+    sealed = AESGCM(cek).encrypt(nonce, payload + b"\x02", None)
+    return salt + (4096).to_bytes(4, "big") + bytes([len(as_public)]) + as_public + sealed
+
+
+def vapid_header(endpoint, code):
+    """RFC 8292: 이 알림을 우리 사이트가 보냈다는 서명."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    parts = urllib.parse.urlsplit(endpoint)
+    claims = {"aud": f"{parts.scheme}://{parts.netloc}", "exp": int(time.time()) + 12 * 3600, "sub": PUSH_SUB_URL}
+    head = b64url(json.dumps({"typ": "JWT", "alg": "ES256"}).encode()) + "." + b64url(json.dumps(claims).encode())
+    r, s = decode_dss_signature(vapid_key(code).sign(head.encode(), ec.ECDSA(hashes.SHA256())))
+    token = head + "." + b64url(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+    return f"vapid t={token}, k={vapid_public(code)}"
+
+
+def push_subscribers():
+    """PUSH_SUBSCRIPTIONS 의 각 줄: "이름 LFC1.xxxx" (이름은 없어도 됨) → [(이름, 구독 정보)]"""
+    out = []
+    for i, line in enumerate(os.environ.get("PUSH_SUBSCRIPTIONS", "").splitlines(), 1):
+        token = next((t for t in line.split() if t.startswith("LFC1.")), None)
+        if not token:
+            continue
+        name = line.replace(token, "").strip() or f"{i}번째"
+        try:
+            out.append((name, json.loads(b64url_decode(token[5:]))))
+        except ValueError:
+            log(f"  알림 코드가 잘못됐어요 ({name}) — 다시 복사해 넣어 주세요.")
+    return out
+
+
+def send_push(message):
+    """등록된 모든 기기에 알림을 보낸다. 실패해도 사이트 업데이트는 계속한다."""
+    code = os.environ.get("SITE_CODE", "").strip()
+    subs = push_subscribers()
+    if not code or not subs:
+        log("  알림: 받을 기기가 없어요 (PUSH_SUBSCRIPTIONS 비어 있음)")
+        return
+    body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+    sent = 0
+    for name, sub in subs:
+        try:
+            data = push_encrypt(body, sub["keys"]["p256dh"], sub["keys"]["auth"])
+            req = urllib.request.Request(sub["endpoint"], data=data, method="POST", headers={
+                "Authorization": vapid_header(sub["endpoint"], code), "Content-Encoding": "aes128gcm",
+                "Content-Type": "application/octet-stream", "TTL": "3600", "Urgency": "high",
+            })
+            urllib.request.urlopen(req, timeout=20)
+            sent += 1
+        except urllib.error.HTTPError as e:
+            gone = " — 알림 등록이 풀렸어요. 그 기기에서 '알림 켜기'를 다시 해야 해요." if e.code in (404, 410) else ""
+            log(f"  알림 실패 ({name}): HTTP {e.code}{gone}")
+        except Exception as e:
+            log(f"  알림 실패 ({name}): {e}")
+    log(f"  알림 보냄: {sent}/{len(subs)}대")
+
+
+def notify_lineups(m, detail):
+    """라인업이 처음 확인된 경기면 알림을 한 번 보낸다."""
+    try:
+        done = set(json.loads(NOTIFIED_FILE.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        done = set()
+    key = f"lineup-{m['id']}"
+    if key in done or not detail.get("lineups"):
+        return
+    side = "home" if m["home"] == team_ko("Liverpool") else "away"
+    lfc = detail["lineups"][side]
+    names = ", ".join(p.get("last") or p["name"] for p in lfc["starters"])
+    send_push({
+        "title": f"선발 라인업 발표 · {m['home']} vs {m['away']}",
+        "body": f"{lfc.get('formation') or ''} {names}".strip(),
+        "url": f"./?match={m['id']}&tab=lineup",
+        "tag": key,
+    })
+    done.add(key)
+    NOTIFIED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    NOTIFIED_FILE.write_text(json.dumps(sorted(done)[-50:]), encoding="utf-8")
+
+
 LAST_DATA_FILE = ROOT / "cache" / "last_data.json"  # 직전 전체 업데이트 결과 (카페만 새로 고칠 때 재사용)
 FULL_EVERY = dt.timedelta(minutes=50)  # 10분마다 실행되므로, 마지막 전체 업데이트가 이만큼 지났으면 다시 전체 업데이트
 
@@ -1262,8 +1404,14 @@ def write_page(data):
         log("SITE_CODE가 없어 잠그지 않았습니다 (내 PC 미리보기용).")
     payload = payload.replace("</", "<\\/")
     page = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", payload)
+    # 알림 등록용 공개 열쇠 (접속 코드가 없으면 알림 기능을 끈다)
+    page = page.replace("/*__VAPID__*/null", json.dumps(vapid_public(code) if code else None))
     SITE_DIR.mkdir(exist_ok=True)
     (SITE_DIR / "index.html").write_text(page, encoding="utf-8")
+    # 바탕화면 앱 설정·알림 수신 파일과 아이콘 (잠그지 않는다: 개인 정보가 없다)
+    for folder in (ROOT / "static", ROOT / "icons"):
+        for f in folder.iterdir():
+            (SITE_DIR / f.name).write_bytes(f.read_bytes())
     (SITE_DIR / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
     LAST_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     LAST_DATA_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

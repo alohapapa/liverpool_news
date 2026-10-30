@@ -43,6 +43,7 @@ jobs:
           SITE_CODE: ${{ secrets.SITE_CODE }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}          # 없으면 카페 글만 건너뜀
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          PUSH_SUBSCRIPTIONS: ${{ secrets.PUSH_SUBSCRIPTIONS }}    # 라인업 알림 받을 기기 (없으면 알림만 건너뜀)
           FORCE_FULL: ${{ github.event_name == 'push' }}           # 코드를 올렸을 때만 무조건 전체 업데이트
         run: |
           # 접속 코드가 없으면 잠기지 않은 사이트가 올라가므로 여기서 멈춘다

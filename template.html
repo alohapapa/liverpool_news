@@ -248,7 +248,29 @@
   .res { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 5px; color: #fff; }
   .res-W { background: var(--good); } .res-D { background: #8c8486; } .res-L { background: var(--red); }
   .match.has-detail, .matchday.has-detail, .dot[data-match] { cursor: pointer; }
-  .matchday .rec-link { color: var(--red-ink); font-weight: 800; }
+  .matchday .rec-link { color: var(--red-ink); font-weight: 800; margin-top: -10px; }
+  .matchday .venue + .rec-link { padding-top: 0; }
+
+  /* ---------- 매치 프리뷰 ---------- */
+  .pv-info > div { display: flex; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 14px; }
+  .pv-info > div:first-child { border-top: 0; }
+  .pv-info span { flex: none; width: 52px; color: var(--muted); font-weight: 700; font-size: 13px; }
+  .pv-info b { font-weight: 700; }
+  .pv-info a { color: var(--red-ink); font-weight: 800; }
+  h2 small { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .pv-form { padding: 12px 14px; border-top: 1px solid var(--line); }
+  .pv-form:first-child { border-top: 0; }
+  .pv-form .who { display: flex; align-items: center; gap: 7px; font-size: 14px; margin-bottom: 8px; }
+  .pv-form .who img { width: 20px; height: 20px; object-fit: contain; }
+  .pv-form .dots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .pv-form .g { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
+  .pv-form .g small { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .pv-form .g .opp { font-weight: 500; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-note { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .pv-lead .nums span:first-child, .pv-lead .nums span:last-child { font-size: 13.5px; }
+  .pv-lead b { font-weight: 800; color: var(--red-ink); margin-left: 2px; }
+  .bn .mk .inj-s, .bn .mk .inj-i, .bn .mk .inj-n { color: var(--bad); font-weight: 700; }
+  .bn .mk .inj-d { color: var(--warn); font-weight: 700; }
   .recent { grid-column: 1 / -1; padding: 12px 0 0; overflow: hidden; }
   .recent .label { padding: 0 15px; }
   .recent .list { border: 0; border-radius: 0; box-shadow: none; background: none; }
@@ -567,7 +589,8 @@ function renderSummary() {
   let html = "";
   if (next) {
     const live = next.state === "in";
-    const rec = live && hasDetail(next);
+    const rec = canOpen(next);
+    const recText = live ? "경기 기록 보기 ›" : hasLineup(next) ? "라인업 발표! 프리뷰·라인업 보기 ›" : "매치 프리뷰 보기 ›";
     html += `<div class="matchday ${rec ? "has-detail" : ""}" ${rec ? `data-match="${esc(next.id)}"` : ""}>
       <div class="bar"><span class="md">${live ? "LIVE" : "NEXT MATCH"}</span><span>${esc(next.comp)}</span></div>
       <div class="vs">
@@ -579,7 +602,8 @@ function renderSummary() {
         </div>
         <div class="side ${isLfc(next.away) ? "lfc" : ""}">${img(next.away_logo)}<div>${esc(next.away)}</div></div>
       </div>
-      ${rec ? `<div class="venue rec-link">경기 기록 보기 ›</div>` : next.venue ? `<div class="venue">${esc(next.venue)}</div>` : ""}
+      ${next.venue && !live ? `<div class="venue">${esc(next.venue)}</div>` : ""}
+      ${rec ? `<div class="venue rec-link">${recText}</div>` : ""}
     </div>`;
   }
   html += `<div class="stats">`;
@@ -697,7 +721,7 @@ function matchRow(m) {
     ? `<div class="score time">${fmtTime(m.date)}</div>`
     : `<div class="score">${esc(m.home_score)} - ${esc(m.away_score)}</div>`;
   const live = m.state === "in" ? ` · <b style="color:var(--red-ink)">진행 중 ${esc(m.detail || "")}</b>` : "";
-  const rec = hasDetail(m) ? `<span class="rec">기록 ›</span>` : "";
+  const rec = m.id && canOpen(m) ? `<span class="rec">${m.state === "pre" ? (hasLineup(m) ? "라인업 ›" : "프리뷰 ›") : "기록 ›"}</span>` : "";
   return `<div class="match ${rec ? "has-detail" : ""}" ${rec ? `data-match="${esc(m.id)}"` : ""}>
     <div class="head"><span>${fmtDay(m.date)} · ${esc(m.comp)}${live}</span>${m.result ? `<span class="res res-${m.result}">${RES_KO[m.result]}</span>` : ""}${rec}</div>
     <div class="team ${isLfc(m.home) ? "lfc" : ""}">${img(m.home_logo)}<span>${esc(m.home)}</span></div>
@@ -861,38 +885,111 @@ function lineupHtml(d, m) {
       <div class="bench-cols"><div>${benchCol("home")}</div><div>${benchCol("away")}</div></div>
     </div>`;
 }
+/* ---------- 다음 경기 프리뷰 (킥오프 전) ---------- */
+const hasPreview = (m) => !!(DATA.preview && DATA.preview.id === m.id);
+const canOpen = (m) => hasDetail(m) || (m.state === "pre" && hasPreview(m));
+const hasLineup = (m) => !!(hasDetail(m) && DATA.details[m.id].lineups);
+function previewHtml(d, m) {
+  const pv = hasPreview(m) ? DATA.preview : null;
+  const side = (s) => (s === "home" ? { name: m.home, logo: m.home_logo } : { name: m.away, logo: m.away_logo });
+  let html = `<div class="list pv-info">
+      <div><span>킥오프</span><b>${fmtDate(m.date)}</b></div>
+      ${m.venue ? `<div><span>경기장</span><b>${esc(m.venue)}</b></div>` : ""}
+      <div><span>라인업</span><b>${d.lineups ? `<a href="#" data-st-go="lineup">발표됨 · 라인업 보기 ›</a>` : "킥오프 1시간 15분 전쯤 발표되면 바로 올라와요"}</b></div>
+    </div>`;
+
+  // 순위 비교: 이 경기 대회의 순위표에서 두 팀을 찾는다 (컵대회면 프리미어리그 순위표)
+  const table = m.comp_slug === "uefa.champions" ? DATA.standings.ucl : DATA.standings.pl;
+  const row = (name) => table.find((r) => r.team === name);
+  const h = row(m.home), a = row(m.away);
+  if (h && a) {
+    const line = (label, hv, av, lowWins) => {
+      const hn = parseFloat(hv), an = parseFloat(av);
+      const hw = lowWins ? hn < an : hn > an, aw = lowWins ? an < hn : an > hn;
+      return `<div class="st-row"><div class="nums"><span class="${hw ? "win" : ""}">${esc(hv)}</span><span>${label}</span><span class="${aw ? "win" : ""}">${esc(av)}</span></div></div>`;
+    };
+    html += `<h2>${m.comp_slug === "uefa.champions" ? "챔피언스리그" : "프리미어리그"} 순위</h2>
+      <div class="list"><div class="st-head"><span>${esc(m.home)}</span><span>${esc(m.away)}</span></div>
+      ${line("순위", h.rank + "위", a.rank + "위", true)}${line("승점", h.pts, a.pts)}${line("경기", h.p, a.p)}
+      ${line("승-무-패", `${h.w}-${h.d}-${h.l}`, `${a.w}-${a.d}-${a.l}`)}${line("득실", h.gd, a.gd)}</div>`;
+  }
+
+  if (pv && (pv.form.home || pv.form.away)) {
+    const formRow = (s) => {
+      const list = pv.form[s] || [];
+      return `<div class="pv-form"><div class="who">${img(side(s).logo)}<b>${esc(side(s).name)}</b></div>
+        <div class="dots">${list.map((g) => `<div class="g"><span class="dot ${esc(g.res)}">${RES_KO[g.res] || "-"}</span>
+          <small>${esc(g.score)}</small><small class="opp">${esc(g.opp)}</small></div>`).join("")}</div></div>`;
+    };
+    html += `<h2>최근 5경기</h2><div class="list">${formRow("home")}${formRow("away")}
+      <div class="pv-note">왼쪽이 오래된 경기, 오른쪽이 최근 경기 · 점수는 그 팀 기준</div></div>`;
+  }
+
+  if (pv && pv.h2h.length) {
+    html += `<h2>최근 맞대결</h2><div class="list">${pv.h2h.map((g) => matchRow({ ...g, state: "post", result: null })).join("")}</div>`;
+  }
+
+  if (pv && pv.leaders.length) {
+    const cell = (x) => (x ? `${esc(x.name)} <b>${esc(x.value)}</b>` : "-");
+    html += `<h2>팀별 주요 선수 <small>이번 시즌</small></h2><div class="list">
+      <div class="st-head"><span>${esc(m.home)}</span><span>${esc(m.away)}</span></div>
+      ${pv.leaders.map((r) => `<div class="st-row pv-lead"><div class="nums"><span>${cell(r.home)}</span><span>${esc(r.label)}</span><span>${cell(r.away)}</span></div></div>`).join("")}</div>`;
+  }
+
+  // 부상·결장: 리버풀은 부상 탭과 같은 목록, 상대 팀은 FPL(프리미어리그 팀일 때만)
+  if (pv) {
+    const lfcSide = pv.opp_side === "home" ? "away" : "home";
+    const list = (s) => {
+      const items = s === lfcSide ? DATA.injuries : pv.opp_injuries;
+      if (!items) return `<div class="bn unused"><span></span><span class="nm">정보 없음</span></div>`;
+      if (!items.length) return `<div class="bn unused"><span></span><span class="nm">없음</span></div>`;
+      return items.map((p) => `<div class="bn"><span class="no">${esc(p.pos)}</span><span class="nm">${esc(p.name)}</span>
+        <span class="mk"><span class="inj-${esc(p.status)}">${esc(p.status_ko)}${p.chance != null && p.status === "d" ? ` ${esc(p.chance)}%` : ""}</span></span></div>`).join("");
+    };
+    html += `<h2>부상·결장</h2><div class="list bench">
+      <div class="bench-head"><span>${img(m.home_logo)}${esc(m.home)}</span><span>${img(m.away_logo)}${esc(m.away)}</span></div>
+      <div class="bench-cols"><div>${list("home")}</div><div>${list("away")}</div></div></div>
+      <div class="notice">부상·결장은 프리미어리그 공식 판타지(FPL) 기준이라 프리미어리그 팀만 나와요.</div>`;
+  }
+  return html;
+}
 function renderSheet(id) {
   const m = DATA.matches.find((x) => x.id === id);
-  const d = DATA.details[id];
+  // 킥오프 전에는 프리뷰만 있을 수 있다 (라인업은 발표 뒤에 경기 기록으로 들어온다)
+  const d = DATA.details[id] || { events: [], stats: [], lineups: null, fetched: DATA.generated };
   const el = document.getElementById("sheet");
-  const live = m.state === "in";
-  const state = live ? `진행 중 ${m.detail || ""}` : m.state === "post" ? m.pens || "경기 종료" : fmtTime(m.date);
-  const tabs = [["events", "주요 장면"], ["stats", "팀 기록"], ["lineup", "라인업"]];
-  const body = { events: eventsHtml, stats: statsHtml, lineup: lineupHtml }[sheetTab](d, m);
+  const live = m.state === "in", pre = m.state === "pre";
+  const state = live ? `진행 중 ${m.detail || ""}` : m.state === "post" ? m.pens || "경기 종료" : dday(m.date);
+  const tabs = pre ? [["preview", "프리뷰"], ["lineup", d.lineups ? "라인업 ●" : "라인업"]]
+    : [["events", "주요 장면"], ["stats", "팀 기록"], ["lineup", "라인업"]];
+  if (!tabs.some(([k]) => k === sheetTab)) sheetTab = tabs[0][0];
+  const body = { preview: previewHtml, events: eventsHtml, stats: statsHtml, lineup: lineupHtml }[sheetTab](d, m);
   el.innerHTML = `<div class="sheet-top"><div class="wrap">
       <div class="bar"><button class="close" id="sheet-close" aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
         <span>${esc(m.comp)} · ${fmtLongDay(m.date)}</span></div>
       <div class="vs">
         <div class="side">${img(m.home_logo)}<div>${esc(m.home)}</div></div>
-        <div><div class="kick">${esc(m.home_score ?? "")} - ${esc(m.away_score ?? "")}</div><span class="state">${esc(state)}</span></div>
+        <div><div class="kick">${pre ? fmtTime(m.date) : `${esc(m.home_score ?? "")} - ${esc(m.away_score ?? "")}`}</div><span class="state">${esc(state)}</span></div>
         <div class="side">${img(m.away_logo)}<div>${esc(m.away)}</div></div>
       </div>
     </div></div>
     <div class="wrap">
       <div class="seg">${tabs.map(([k, label]) => `<button data-st="${k}" aria-pressed="${k === sheetTab}">${label}</button>`).join("")}</div>
       ${body}
-      <div class="notice">${live ? "경기 중에는 10분마다 새로 고쳐요. " : ""}기록 기준: ${ago(d.fetched)} · 출처: ESPN</div>
+      <div class="notice">${live ? "경기 중에는 10분마다 새로 고쳐요. " : pre ? "킥오프 전 정보예요. 경기가 시작되면 이 화면이 경기 기록으로 바뀌어요. " : ""}기준: ${ago(d.fetched)} · 출처: ESPN</div>
       <a class="ext" href="https://www.espn.com/soccer/match/_/gameId/${esc(m.id)}" target="_blank" rel="noopener noreferrer">ESPN에서 더 자세히 보기</a>
     </div>`;
   el.querySelector("#sheet-close").addEventListener("click", () => history.back());
-  el.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {
-    sheetTab = b.dataset.st;
+  el.querySelectorAll("[data-st], [data-st-go]").forEach((b) => b.addEventListener("click", (e) => {
+    e.preventDefault();
+    sheetTab = b.dataset.st || b.dataset.stGo;
     renderSheet(id);
   }));
 }
 function openMatch(id) {
-  if (!DATA.details || !DATA.details[id]) return;
-  sheetTab = "events";
+  const m = DATA.matches.find((x) => x.id === id);
+  if (!m || !canOpen(m)) return;
+  sheetTab = m.state === "pre" ? "preview" : "events";
   renderSheet(id);
   const el = document.getElementById("sheet");
   el.hidden = false;

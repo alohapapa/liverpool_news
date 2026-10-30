@@ -466,10 +466,10 @@ def fpl_news_ko(news, translator):
     return ko
 
 
-def collect_injuries(translator):
-    log("부상자: FPL")
+def collect_injuries(translator, team_name=FPL_TEAM_NAME):
+    log(f"부상자: FPL ({team_name})")
     data = fetch_json("https://fantasy.premierleague.com/api/bootstrap-static/")
-    team_id = next(t["id"] for t in data["teams"] if t["name"] == FPL_TEAM_NAME)
+    team_id = next(t["id"] for t in data["teams"] if t["name"] == team_name)
     out = []
     for p in data["elements"]:
         if p["team"] != team_id or p["status"] == "a":
@@ -768,7 +768,7 @@ def parse_details(summary, m, photos, coaches):
         "final": m["state"] == "post" and NOW - parse_date(m["date"]) > DETAILS_FINAL_AFTER,
         "events": events,
         "stats": stat_rows,
-        "lineups": lineups if len(lineups) == 2 else None,
+        "lineups": lineups if len(lineups) == 2 and all(l["starters"] for l in lineups.values()) else None,
     }
 
 
@@ -898,6 +898,41 @@ def parse_shootout(summary, home_id):
     return kicks
 
 
+LINEUP_CHECK_FROM = 180     # 킥오프 몇 분 전부터 라인업을 확인할지
+LINEUP_RUSH_FROM = 86       # 이 시각(킥오프 86분 전)부터 시작한 실행은
+LINEUP_RUSH_UNTIL = 60      # 라인업이 나올 때까지(늦어도 킥오프 60분 전까지) 계속 확인한다
+LINEUP_RUSH_EVERY = 15      # 그동안 몇 초마다 확인할지
+
+
+def minutes_to(m):
+    return ((parse_date(m["date"]) or NOW) - dt.datetime.now(dt.timezone.utc)).total_seconds() / 60
+
+
+def summary_url(m):
+    return f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"
+
+
+def wait_for_lineups(m, photos, coaches):
+    """다음 경기 기록(라인업 포함)을 받는다.
+    선발 라인업은 킥오프 75분 전에 발표된다. cron-job.org 가 10분마다 깨우므로 킥오프 86~76분 전 사이에
+    시작하는 실행이 반드시 하나 있고, 그 실행은 라인업이 ESPN에 올라올 때까지 15초마다 확인하다가
+    올라오는 즉시 멈추고 사이트에 올린다 (ESPN이 늦으면 킥오프 60분 전까지 기다린다)."""
+    detail = parse_details(fetch_json(summary_url(m)), m, photos, coaches)
+    if detail["lineups"] or not (LINEUP_RUSH_UNTIL < minutes_to(m) <= LINEUP_RUSH_FROM):
+        return detail
+    log(f"  라인업 발표 대기 (킥오프 {int(minutes_to(m))}분 전부터 {LINEUP_RUSH_EVERY}초마다 확인)")
+    tries = 0
+    while not detail["lineups"] and minutes_to(m) > LINEUP_RUSH_UNTIL:
+        time.sleep(LINEUP_RUSH_EVERY)
+        tries += 1
+        try:
+            detail = parse_details(fetch_json(summary_url(m)), m, photos, coaches)
+        except Exception as e:
+            log(f"  라인업 확인 실패 (다시 시도): {e}")
+    log(f"  라인업 {'확인' if detail['lineups'] else '아직 없음'}: 킥오프 {int(minutes_to(m))}분 전, {tries}번 더 확인")
+    return detail
+
+
 def collect_details(matches):
     """진행 중인 경기와 최근에 끝난 경기의 기록(골·카드·교체, 팀 기록, 라인업)."""
     try:
@@ -906,17 +941,26 @@ def collect_details(matches):
         cached = {}
     live = [m for m in matches if m["state"] == "in"]
     done = [m for m in matches if m["state"] == "post"][-DETAILS_RECENT:]
+    # 다음 경기는 킥오프 3시간 전부터 라인업이 나왔는지 확인한다
+    soon = [m for m in matches if m["state"] == "pre" and minutes_to(m) <= LINEUP_CHECK_FROM][:1]
     out, fetched = {}, 0
     photos = PlayerPhotos()  # 새로 받을 경기가 있을 때만 FPL 목록을 한 번 받는다
     coaches = Coaches()
+    for m in soon:
+        try:
+            out[m["id"]] = wait_for_lineups(m, photos, coaches)
+            fetched += 1
+        except Exception as e:
+            log(f"  다음 경기 라인업 확인 실패: {e}")
+            if cached.get(m["id"]):
+                out[m["id"]] = cached[m["id"]]
     for m in live + done:
         old = cached.get(m["id"])
         if old and old.get("final") and old.get("v") == DETAILS_VERSION and m["state"] == "post":
             out[m["id"]] = old
             continue
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{m['comp_slug']}/summary?event={m['id']}"
         try:
-            out[m["id"]] = parse_details(fetch_json(url), m, photos, coaches)
+            out[m["id"]] = parse_details(fetch_json(summary_url(m)), m, photos, coaches)
             fetched += 1
         except Exception as e:
             log(f"  경기 기록 실패 ({m['home']} - {m['away']}): {e}")
@@ -927,6 +971,88 @@ def collect_details(matches):
     DETAILS_FILE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     log(f"경기 기록: {len(out)}경기 (새로 받음 {fetched})")
     return out
+
+
+# ---------------------------------------------------------------- 다음 경기 프리뷰 (ESPN 경기 요약 + FPL 부상)
+
+LEADER_KO = {"Goals": "득점", "Assists": "도움", "Total Shots": "슈팅", "Accurate Passes": "패스 성공", "Saves": "선방"}
+# ESPN 팀 이름과 FPL 팀 이름이 다른 경우 (나머지는 'Leeds' ⊂ 'Leeds United' 처럼 포함 관계로 찾는다)
+FPL_TEAM_ALIAS = {"Manchester City": "Man City", "Manchester United": "Man Utd", "Nottingham Forest": "Nott'm Forest",
+                  "Tottenham Hotspur": "Spurs", "Wolverhampton Wanderers": "Wolves"}
+
+
+def comp_ko(name):
+    """'2025-26 English Premier League' → '프리미어리그'"""
+    for key, ko in (("Premier League", "프리미어리그"), ("Champions League", "챔피언스리그"), ("FA Cup", "FA컵"),
+                    ("League Cup", "카라바오컵"), ("Carabao", "카라바오컵"), ("Community Shield", "커뮤니티 실드"),
+                    ("Friendl", "친선"), ("Europa League", "유로파리그")):
+        if key.lower() in (name or "").lower():
+            return ko
+    return re.sub(r"^\d{4}(-\d{2})?\s+", "", name or "")
+
+
+def fpl_team_of(espn_name):
+    teams = [t["name"] for t in fetch_json("https://fantasy.premierleague.com/api/bootstrap-static/")["teams"]]
+    if FPL_TEAM_ALIAS.get(espn_name) in teams:
+        return FPL_TEAM_ALIAS[espn_name]
+    return next((t for t in teams if norm_name(t) in norm_name(espn_name)), None)
+
+
+def collect_preview(m, translator):
+    """다음 경기 프리뷰: 두 팀 최근 5경기, 최근 맞대결, 팀별 주요 선수, 상대 팀 부상·결장."""
+    summary = fetch_json(summary_url(m))
+    teams = {c["team"]["id"]: (c["homeAway"], c["team"]["displayName"])
+             for c in summary["header"]["competitions"][0]["competitors"]}
+
+    form = {}
+    for t in summary.get("lastFiveGames", []):
+        side = teams.get(t["team"]["id"], (None,))[0]
+        if not side:
+            continue
+        form[side] = [{
+            "res": e.get("gameResult"), "score": e.get("score"), "home": e.get("atVs") != "@",
+            "opp": team_ko((e.get("opponent") or {}).get("displayName", "")),
+            "date": e.get("gameDate"), "comp": comp_ko(e.get("leagueName") or e.get("competitionName")),
+        } for e in t.get("events", [])]
+
+    h2h = []
+    for series in summary.get("seasonseries", [])[:1]:
+        for e in series.get("events", []):
+            c = {x["homeAway"]: x for x in e.get("competitors", [])}
+            if "home" not in c or "away" not in c:
+                continue
+            h2h.append({
+                "date": e.get("date"), "comp": comp_ko(e.get("competitionName")),
+                "home": team_ko(c["home"]["team"]["displayName"]), "away": team_ko(c["away"]["team"]["displayName"]),
+                "home_logo": logo_of(c["home"]["team"]), "away_logo": logo_of(c["away"]["team"]),
+                "home_score": c["home"].get("score"), "away_score": c["away"].get("score"),
+            })
+
+    leaders = {}
+    for t in summary.get("leaders", []):
+        side = teams.get(t["team"]["id"], (None,))[0]
+        for cat in t.get("leaders", []):
+            label = LEADER_KO.get(cat.get("displayName"))
+            top = (cat.get("leaders") or [None])[0]
+            if not side or not label or not top:
+                continue
+            value = re.findall(r"\d+", top.get("displayValue", ""))  # "Matches: 7, Goals: 6" → 6
+            athlete = top.get("athlete") or {}
+            leaders.setdefault(label, {})[side] = {"name": athlete.get("lastName") or athlete.get("displayName"),
+                                                   "value": value[-1] if value else top.get("displayValue")}
+    leader_rows = [{"label": label, **sides} for label, sides in leaders.items()]
+
+    # 상대 팀 부상·결장 (프리미어리그 팀일 때만 FPL에 있다). 리버풀 쪽은 부상 탭과 같은 목록을 쓴다.
+    opp_side = "away" if teams.get(ESPN_TEAM_ID, ("home",))[0] == "home" else "home"
+    opp_name = next((n for side, n in teams.values() if side == opp_side), "")
+    opp_injuries = None
+    fpl_name = fpl_team_of(opp_name)
+    if fpl_name:
+        opp_injuries = collect_injuries(translator, fpl_name)
+
+    log(f"프리뷰: {m['home']} - {m['away']} (맞대결 {len(h2h)}, 주요 선수 {len(leader_rows)})")
+    return {"id": m["id"], "form": form, "h2h": h2h, "leaders": leader_rows,
+            "opp_side": opp_side, "opp_injuries": opp_injuries}
 
 
 def ucl_zone(rank):
@@ -1204,6 +1330,8 @@ def full_update():
     matches = safe("경기 일정", collect_matches, [], errors)
     explain_suspensions(injuries, matches)
     details = safe("경기 기록", lambda: collect_details(matches), {}, errors)
+    upcoming = next((m for m in matches if m["state"] == "pre"), None)
+    preview = safe("다음 경기 프리뷰", lambda: collect_preview(upcoming, translator), None, errors) if upcoming else None
     cafe, cafe_status = collect_cafe()
     standings = {
         "pl": safe("프리미어리그 순위", lambda: collect_standings("eng.1"), [], errors),
@@ -1225,6 +1353,7 @@ def full_update():
         "injuries": injuries,
         "matches": matches,
         "details": details,
+        "preview": preview,
         "standings": standings,
         "competitions": competition_status(matches, standings),
         "errors": errors,

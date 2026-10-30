@@ -266,6 +266,12 @@
   .pv-form .g { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
   .pv-form .g small { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
   .pv-form .g .opp { font-weight: 500; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fg { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 7px; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .fg:first-child { border-top: 0; }
+  .fg b { font-variant-numeric: tabular-nums; }
+  .fg .opp { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .fg .opp small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+  .empty small { color: var(--muted); font-size: 12.5px; }
   .pv-note { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
   .pv-lead .nums span:first-child, .pv-lead .nums span:last-child { font-size: 13.5px; }
   .pv-lead b { font-weight: 800; color: var(--red-ink); margin-left: 2px; }
@@ -856,7 +862,9 @@ function pitchHtml(d, m) {
     ${half(home, true, isLfc(m.home))}${half(away, false, isLfc(m.away))}</div>${bar("away")}`;
 }
 function lineupHtml(d, m) {
-  if (!d.lineups) return `<div class="list"><div class="empty">아직 라인업이 나오지 않았어요.</div></div>`;
+  if (!d.lineups) return `<div class="list"><div class="empty">${m.state === "pre"
+    ? "라인업 발표 전입니다.<br><small>킥오프 1시간 15분 전에 발표되면 바로 올라와요.</small>"
+    : "라인업 정보가 없어요."}</div></div>`;
   const player = (p, unused) => `<div class="lu ${unused ? "unused" : ""}"><span class="no">${esc(p.no ?? "")}</span>
     <span class="nm">${esc(p.name)}${p.pos && p.pos !== "SUB" ? `<em>${esc(p.pos)}</em>` : ""}</span>
     <span class="mk">${p.marks.map(markHtml).join("")}</span></div>`;
@@ -895,7 +903,7 @@ function previewHtml(d, m) {
   let html = `<div class="list pv-info">
       <div><span>킥오프</span><b>${fmtDate(m.date)}</b></div>
       ${m.venue ? `<div><span>경기장</span><b>${esc(m.venue)}</b></div>` : ""}
-      <div><span>라인업</span><b>${d.lineups ? `<a href="#" data-st-go="lineup">발표됨 · 라인업 보기 ›</a>` : "킥오프 1시간 15분 전쯤 발표되면 바로 올라와요"}</b></div>
+      <div><span>라인업</span><b>${d.lineups ? `<a href="#" data-st-go="lineup">발표됨 · 라인업 보기 ›</a>` : "발표 전 (킥오프 1시간 15분 전 발표)"}</b></div>
     </div>`;
 
   // 순위 비교: 이 경기 대회의 순위표에서 두 팀을 찾는다 (컵대회면 프리미어리그 순위표)
@@ -915,14 +923,14 @@ function previewHtml(d, m) {
   }
 
   if (pv && (pv.form.home || pv.form.away)) {
-    const formRow = (s) => {
-      const list = pv.form[s] || [];
-      return `<div class="pv-form"><div class="who">${img(side(s).logo)}<b>${esc(side(s).name)}</b></div>
-        <div class="dots">${list.map((g) => `<div class="g"><span class="dot ${esc(g.res)}">${RES_KO[g.res] || "-"}</span>
-          <small>${esc(g.score)}</small><small class="opp">${esc(g.opp)}</small></div>`).join("")}</div></div>`;
-    };
-    html += `<h2>최근 5경기</h2><div class="list">${formRow("home")}${formRow("away")}
-      <div class="pv-note">왼쪽이 오래된 경기, 오른쪽이 최근 경기 · 점수는 그 팀 기준</div></div>`;
+    // 왼쪽 홈 팀, 오른쪽 원정 팀. 위에서부터 최근 경기 순서
+    const formCol = (s) => [...(pv.form[s] || [])].reverse().map((g) => `<div class="fg">
+        <span class="res res-${esc(g.res)}">${RES_KO[g.res] || "-"}</span><b>${esc(g.score)}</b>
+        <span class="opp">${esc(g.opp)}<small>${g.home ? "홈" : "원정"} · ${fmtDay(g.date)}</small></span></div>`).join("");
+    html += `<h2>최근 5경기</h2><div class="list bench">
+      <div class="bench-head"><span>${img(m.home_logo)}${esc(m.home)}</span><span>${img(m.away_logo)}${esc(m.away)}</span></div>
+      <div class="bench-cols"><div>${formCol("home")}</div><div>${formCol("away")}</div></div>
+      <div class="pv-note">위에서부터 최근 경기 · 점수는 그 팀 기준</div></div>`;
   }
 
   if (pv && pv.h2h.length) {

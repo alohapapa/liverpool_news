@@ -296,6 +296,10 @@
   .ico { flex: none; width: 22px; text-align: center; font-size: 15px; }
   .card-y, .card-r { display: inline-block; width: 11px; height: 15px; border-radius: 2px; vertical-align: -2px; }
   .card-y { background: #f2c200; } .card-r { background: #e01e1e; }
+  .tl-ev.miss b { color: var(--muted); text-decoration: line-through; }
+  .tl-ev.miss .ico { color: var(--bad); font-weight: 800; }
+  .tl-row .min.pk { color: var(--text); font-size: 13.5px; }
+  .tl-ht.pk-head { color: var(--red-ink); font-size: 13px; }
   .tl-ht { padding: 7px 12px; border-top: 1px solid var(--line); text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); background: color-mix(in srgb, var(--line) 45%, transparent); }
 
   /* 팀 기록: 양쪽 숫자 + 가운데서 만나는 막대 */
@@ -736,7 +740,16 @@ function eventsHtml(d, m) {
     const big = ["goal", "pen", "og", "red"].includes(e.kind) ? "big" : "";
     return `<div class="tl-row ${big}">${e.side === "home" ? ev : "<div></div>"}<div class="min">${esc(e.min)}</div>${e.side === "away" ? ev : "<div></div>"}</div>`;
   };
-  return `<div class="list">${d.events.map(row).join("")}</div>`;
+  // 승부차기: 찬 순서대로, 가운데에 그때까지의 승부차기 점수
+  const kick = (k) => {
+    const note = k.scored ? "성공" : k.how === "saved" ? "선방에 막힘" : "실축";
+    const ev = `<div class="tl-ev ${k.side} ${k.scored ? "" : "miss"}"><span class="ico">${k.scored ? "⚽" : "✕"}</span><div><b>${esc(k.player)}</b><small>${note}</small></div></div>`;
+    return `<div class="tl-row">${k.side === "home" ? ev : "<div></div>"}<div class="min pk">${esc(k.score)}</div>${k.side === "away" ? ev : "<div></div>"}</div>`;
+  };
+  const shootout = d.shootout && d.shootout.length
+    ? `<div class="tl-ht pk-head">승부차기${m.pens ? " · " + esc(m.pens.replace("승부차기 ", "")) : ""}</div>${d.shootout.map(kick).join("")}`
+    : "";
+  return `<div class="list">${d.events.map(row).join("")}${shootout}</div>`;
 }
 function statsHtml(d, m) {
   if (!d.stats.length) return `<div class="list"><div class="empty">아직 팀 기록이 없어요.</div></div>`;

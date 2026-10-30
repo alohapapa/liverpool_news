@@ -656,7 +656,7 @@ def collect_standings(slug):
 DETAILS_FILE = ROOT / "cache" / "match_details.json"  # 끝난 경기 기록은 바뀌지 않으므로 다시 받지 않는다
 DETAILS_RECENT = 10               # 최근에 끝난 경기 몇 개까지 기록을 보여줄지 (진행 중인 경기는 항상)
 DETAILS_FINAL_AFTER = dt.timedelta(hours=4)  # 킥오프 후 이만큼 지난 뒤 받은 기록은 확정으로 보고 캐시에서 재사용
-DETAILS_VERSION = 4               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
+DETAILS_VERSION = 5               # 저장 형식을 바꾸면 올린다 (캐시에 남은 예전 형식 기록을 다시 받게 됨)
 
 # (ESPN 항목, 한국어 이름) — 화면에 이 순서로 보여준다
 STAT_KO = [
@@ -763,6 +763,7 @@ def parse_details(summary, m, photos, coaches):
     return {
         "id": m["id"],
         "v": DETAILS_VERSION,
+        "shootout": parse_shootout(summary, home_id),
         "fetched": NOW.isoformat(),
         "final": m["state"] == "post" and NOW - parse_date(m["date"]) > DETAILS_FINAL_AFTER,
         "events": events,
@@ -870,6 +871,31 @@ class Coaches:
     def save(self):
         COACH_FILE.parent.mkdir(parents=True, exist_ok=True)
         COACH_FILE.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
+
+
+def parse_shootout(summary, home_id):
+    """승부차기: 찬 순서대로 [{side, player, scored, how(saved|missed), score}]. 승부차기가 없으면 None."""
+    kicks = []
+    for team in summary.get("shootout") or []:
+        side = "home" if str(team.get("id")) == str(home_id) else "away"
+        for shot in team.get("shots", []):
+            kicks.append({"side": side, "player": shot.get("player", ""), "scored": bool(shot.get("didScore")),
+                          "order": int(shot.get("id") or 0)})  # 기록 번호가 찬 순서대로 커진다
+    if not kicks:
+        return None
+    kicks.sort(key=lambda k: k["order"])
+    # 못 넣은 킥이 골키퍼 선방인지 실축(골대·벗어남)인지는 문자 중계에서 찾는다
+    saved = {norm_name(c.get("text", "").split("Penalty saved.")[1].split("(")[0])
+             for c in summary.get("commentary") or [] if "Penalty saved." in c.get("text", "")}
+    home = away = 0
+    for k in kicks:
+        if k["scored"]:
+            home, away = (home + 1, away) if k["side"] == "home" else (home, away + 1)
+        else:
+            k["how"] = "saved" if norm_name(k["player"]) in saved else "missed"
+        k["score"] = f"{home}-{away}"
+        del k["order"]
+    return kicks
 
 
 def collect_details(matches):

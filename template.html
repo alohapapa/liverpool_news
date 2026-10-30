@@ -539,7 +539,14 @@
       <div class="subpanel" id="sub-cafe"></div>
     </section>
     <section class="panel" id="panel-injuries"></section>
-    <section class="panel" id="panel-matches"></section>
+    <section class="panel" id="panel-matches">
+      <div class="seg" data-start="upcoming">
+        <button data-sub="results">최근 결과</button>
+        <button data-sub="upcoming">다가오는 경기</button>
+      </div>
+      <div class="subpanel" id="sub-upcoming"></div>
+      <div class="subpanel" id="sub-results"></div>
+    </section>
     <section class="panel" id="panel-comps">
       <div class="seg">
         <button data-sub="tables">순위</button>
@@ -758,12 +765,12 @@ function matchRow(m) {
   </div>`;
 }
 function renderMatches() {
-  const el = document.getElementById("panel-matches");
   const upcoming = DATA.matches.filter((m) => m.state !== "post");
   const done = DATA.matches.filter((m) => m.state === "post").reverse();
   const block = (list, emptyText) => `<div class="list">${list.length ? list.map(matchRow).join("") : `<div class="empty">${emptyText}</div>`}</div>`;
-  el.innerHTML = `<h2>다가오는 경기</h2>${block(upcoming.slice(0, 10), "예정된 경기가 없어요.")}
-    <h2>최근 결과</h2>${block(done.slice(0, 15), "아직 치른 경기가 없어요.")}
+  document.getElementById("sub-upcoming").innerHTML = `${block(upcoming.slice(0, 15), "예정된 경기가 없어요.")}
+    <div class="notice">시간은 모두 한국 시간이에요. 다음 경기는 '프리뷰 ›'를 누르면 매치 프리뷰를 볼 수 있어요.</div>`;
+  document.getElementById("sub-results").innerHTML = `${block(done.slice(0, 20), "아직 치른 경기가 없어요.")}
     <div class="notice">시간은 모두 한국 시간이에요. '기록 ›'이 있는 경기를 누르면 경기 기록을 볼 수 있어요.</div>`;
 }
 
@@ -1120,7 +1127,9 @@ function showSub(panel, name) {
 function restoreSub(panel) {
   const subs = [...panel.querySelectorAll(".seg button")].map((b) => b.dataset.sub);
   const saved = store.get("sub-" + panel.id);
-  showSub(panel, subs.includes(saved) ? saved : subs[0]);
+  // data-start 가 있는 탭(일정)은 앱을 열 때마다 그 탭부터 보여준다
+  const start = panel.querySelector(".seg").dataset.start;
+  showSub(panel, start || (subs.includes(saved) ? saved : subs[0]));
 }
 document.querySelectorAll(".seg").forEach((seg) => seg.querySelectorAll("button").forEach((b) =>
   b.addEventListener("click", () => showSub(seg.closest("section"), b.dataset.sub))));
